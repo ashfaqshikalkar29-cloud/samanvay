@@ -124,3 +124,35 @@ npx tsc --noEmit
 npm run build
 ```
 Both commands execute with 0 errors.
+
+---
+
+## 🌐 Publishing to GitHub & Hosting on Vercel
+
+### 1. Push to GitHub
+The local repository is already initialized and committed on the `main` branch.
+
+To push to your GitHub account:
+```bash
+npm run github:push <YOUR_GITHUB_REPO_URL> <GITHUB_PAT_OR_PASSWORD>
+```
+Example:
+```bash
+npm run github:push https://github.com/username/samanvay.git ghp_yourPersonalAccessToken
+```
+
+*(Or if you install standard Git CLI on your system: `git remote add origin <url>` and `git push -u origin main`)*.
+
+### 2. Deploy to Vercel (Automatic CI/CD)
+1. Go to [vercel.com](https://vercel.com) and log in with your GitHub account.
+2. Click **"Add New..."** → **"Project"**.
+3. Select your **samanvay** GitHub repository and click **"Import"**.
+4. In the Project Configuration:
+   - Framework Preset: **Next.js** (auto-detected).
+   - Root Directory: `./` (or `samanvay` if importing from the workspace root).
+5. (Optional) Under **Environment Variables**, add:
+   - `NEXT_PUBLIC_DATA_MODE` = `supabase` (or omit for In-Memory demo mode).
+   - `NEXT_PUBLIC_SUPABASE_URL` = `<your-url>`.
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = `<your-anon-key>`.
+6. Click **Deploy**. Vercel will build and assign a production URL (e.g., `https://samanvay.vercel.app`) with automatic deployments on every `git push`.
+
