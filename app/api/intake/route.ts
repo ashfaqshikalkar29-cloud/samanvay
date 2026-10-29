@@ -6,6 +6,9 @@ import { DEMO_TODAY, OFFICERS, type Bureau, type Channel, type Complaint } from 
 import { getRepo } from "@/lib/data/repo";
 import { defaultClassifier } from "@/lib/classifier";
 import { defaultEmbeddingService, findTopKSimilar } from "@/lib/embeddings";
+import { defaultDistressScanner } from "@/lib/ai/distress";
+import { defaultCategorizer } from "@/lib/ai/categorizer";
+import { defaultFraudEngine } from "@/lib/ai/fraud";
 
 const VALID_CHANNELS: Channel[] = ["web", "mobile", "email", "whatsapp", "helpline", "walk-in"];
 
@@ -112,7 +115,31 @@ export async function POST(req: NextRequest) {
     // 8. Generate 384-dimensional Semantic Vector Embedding (2.1)
     const embedding = await defaultEmbeddingService.embed(description.trim());
 
-    // 9. Construct Complaint Record
+    // 9. Phase 3 AI Intelligence: Distress Scan, Categorisation & Priority, Fraud Detection
+    const distress = await defaultDistressScanner.scan(description.trim());
+    const aiPredictions = await defaultCategorizer.predict(description.trim(), dynamic_fields);
+    const clientIp = req.headers.get("x-forwarded-for") || "127.0.0.1";
+    const userAgent = req.headers.get("user-agent") || undefined;
+    const fraudEval = defaultFraudEngine.evaluate(complaintId, description.trim(), inst.id, {
+      ip: clientIp,
+      userAgent,
+      phone: complainant_phone || undefined,
+    });
+
+    const isDistressed = distress.has_distress;
+    const initialUrgency = isDistressed ? "critical" : (aiPredictions?.urgency || "medium");
+
+    let initialNextAction = isTriage
+      ? "In Triage Queue: Requires manual bureau assignment"
+      : "Initial scrutiny by bureau officer";
+
+    if (isDistressed) {
+      initialNextAction = "EMERGENCY: Immediate safety officer dispatch & crisis intervention";
+    } else if (fraudEval.risk_tier !== "clean") {
+      initialNextAction = "Flagged by Anti-Spam Shield — awaiting officer review in Suspicious Queue";
+    }
+
+    // 10. Construct Complaint Record
     const complaint: Complaint = {
       id: complaintId,
       tracking_id: trackingId,
@@ -126,7 +153,7 @@ export async function POST(req: NextRequest) {
       assigned_officer: officerToAssign,
       is_overlap_flagged: false,
       overlap_links: [],
-      next_action: isTriage ? "In Triage Queue: Requires manual bureau assignment" : "Initial scrutiny by bureau officer",
+      next_action: initialNextAction,
       is_anonymous: Boolean(is_anonymous),
       dynamic_fields,
       evidence,
@@ -136,20 +163,40 @@ export async function POST(req: NextRequest) {
       routing_confidence: classification.confidence,
       routing_rationale: classification.rationale,
       is_triage: isTriage,
+      has_distress: isDistressed,
+      distress_details: isDistressed ? distress : undefined,
+      urgency: initialUrgency,
+      legal_risk: aiPredictions.legal_risk,
+      ai_predictions: aiPredictions,
+      fraud_score: fraudEval.overall_score,
+      fraud_evaluation: fraudEval,
     };
 
-    // 10. Persist to data repository
+    // 11. Persist to data repository
     const repo = getRepo();
     await repo.insertComplaint(complaint);
 
-    // 11. Audit trail & Cross-Bureau Event Stream (2.5)
+    // 12. Audit trail & Cross-Bureau Event Stream (2.5)
     await repo.addAudit({
       complaint_id: complaintId,
       action: isTriage ? "Grievance Docketed in Triage" : "Grievance Docketed",
       timestamp: new Date().toISOString(),
       officer: channel === "walk-in" ? officerToAssign : "System Intake Gateway",
-      remarks: `Docketed via ${channel.toUpperCase()} channel. Auto-Routing: ${Math.round(classification.confidence * 100)}% confidence for ${classification.predicted_bureau}. Tracking ID: ${trackingId}.`,
+      remarks: `Docketed via ${channel.toUpperCase()} channel. Auto-Routing: ${Math.round(classification.confidence * 100)}% confidence for ${classification.predicted_bureau}. Priority: ${initialUrgency.toUpperCase()}${isDistressed ? " (SOS Distress Signal)" : ""}. Tracking ID: ${trackingId}.`,
     });
+
+    if (isDistressed) {
+      await repo.addEvent({
+        id: `evt-distress-${complaintId}-${Date.now()}`,
+        complaint_id: complaintId,
+        bureau: "System",
+        event_type: "status_change",
+        actor: "AI Distress Sentinel",
+        title: "CRITICAL DISTRESS SIGNAL FLAGGED",
+        description: `Automated safety scanner detected distress markers (${distress.distress_category}). Safety protocols initiated.`,
+        created_at: new Date().toISOString(),
+      });
+    }
 
     await repo.addEvent({
       id: `evt-${complaintId}-${Date.now()}`,
@@ -196,6 +243,19 @@ export async function POST(req: NextRequest) {
         routing_rationale: complaint.routing_rationale,
         tracking_url: publicTrackUrl,
         anonymous_access_key: anonymousAccessKey,
+        urgency: complaint.urgency,
+        legal_risk: complaint.legal_risk,
+        has_distress: complaint.has_distress,
+        fraud_score: complaint.fraud_score,
+      },
+      ai_insights: {
+        urgency: complaint.urgency,
+        severity_score: aiPredictions.severity_score,
+        legal_risk: complaint.legal_risk,
+        has_distress: isDistressed,
+        distress_category: isDistressed ? distress.distress_category : undefined,
+        fraud_risk: fraudEval.risk_tier,
+        fraud_score: fraudEval.overall_score,
       },
       semantic_similarity: {
         top_matches: topSimilar,

@@ -7,7 +7,7 @@ import {
   ArrowLeft, ArrowRight, Building2, CheckCircle2, Clock, GitMerge,
   History, Lock, Send, User, ShieldAlert, Eye, EyeOff, Paperclip,
   FileText, FileAudio, FileVideo, Image as ImageIcon, Download, AlertTriangle,
-  Layers, ListTodo, Sparkles,
+  Layers, ListTodo, Sparkles, Bot, Scale, Edit3, Languages,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,11 +18,16 @@ import { Input } from "@/components/ui/input";
 import { BureauBadge, ChannelBadge, LinkButton, SlaBadge, StatusBadge, fmtDate, fmtDateTime } from "@/components/ui-bits";
 import { useApp } from "@/lib/store";
 import { getSla } from "@/lib/sla";
-import { ACTOR, OFFICERS, type Bureau, type Complaint, type Status } from "@/lib/mock";
+import { ACTOR, OFFICERS, type Bureau, type Complaint, type Status, type Role } from "@/lib/mock";
 import { CATEGORY_SCHEMAS } from "@/lib/intake-schemas";
 import { ConflictBanner } from "@/components/conflict-banner";
 import { UnifiedTimeline } from "@/components/timeline";
 import { TasksDrawer } from "@/components/tasks-drawer";
+import { DistressBanner } from "@/components/distress-banner";
+import { AISummaryCard } from "@/components/ai-summary-card";
+import { RAGReplyDialog } from "@/components/rag-reply-dialog";
+import { PIITextViewer } from "@/components/pii-toggle";
+import { AICategorizationPrediction } from "@/lib/ai/types";
 
 // ── Adjudication dialog ────────────────────────────────────────────────────
 function AdjudicateDialog({
@@ -211,8 +216,270 @@ function AnonymousRevealDialog({
   );
 }
 
+// ── AI Prediction Correction Dialog (3.1) ─────────────────────────────────
+function AICorrectionModal({
+  complaint,
+  onClose,
+}: {
+  complaint: Complaint;
+  onClose: () => void;
+}) {
+  const { updateComplaint, recordAICorrection, role } = useApp();
+  const [category, setCategory] = useState(complaint.category);
+  const [urgency, setUrgency] = useState(complaint.urgency || complaint.ai_predictions?.urgency || "medium");
+  const [severity, setSeverity] = useState(complaint.ai_predictions?.severity_score || 5);
+  const [legalRisk, setLegalRisk] = useState(Boolean(complaint.legal_risk || complaint.ai_predictions?.legal_risk));
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSave = async () => {
+    setSubmitting(true);
+    try {
+      // 1. Log correction to AI feedback endpoint
+      await fetch("/api/ai/correction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          complaint_id: complaint.id,
+          original_predictions: complaint.ai_predictions || {
+            predicted_category: complaint.category,
+            urgency: complaint.urgency || "medium",
+            severity_score: severity,
+            legal_risk: complaint.legal_risk || false,
+          },
+          corrected_category: category,
+          corrected_urgency: urgency,
+          corrected_severity: severity,
+          corrected_legal_risk: legalRisk,
+          officer_notes: notes,
+          officer_name: ACTOR[role],
+        }),
+      });
+
+      // 2. Persist correction in store
+      await recordAICorrection({
+        id: `corr-${complaint.id}-${Date.now()}`,
+        complaint_id: complaint.id,
+        field: "urgency",
+        original_value: complaint.urgency || "medium",
+        corrected_value: urgency,
+        officer: ACTOR[role],
+        reason: notes || `Adjusted priority to ${urgency} and category to ${category}`,
+        timestamp: new Date().toISOString(),
+      });
+
+      // 3. Update complaint record
+      await updateComplaint(complaint.id, {
+        category,
+        urgency: urgency as any,
+        legal_risk: legalRisk,
+        remark: `AI predictions corrected by officer (${notes || "routine adjustment"}). Priority: ${urgency.toUpperCase()}.`,
+      });
+
+      onClose();
+    } catch (err) {
+      console.error("Failed to save correction:", err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+      <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <Bot className="h-5 w-5 text-blue-700" />
+            <h3 className="font-bold text-slate-900">Review & Correct AI Predictions</h3>
+          </div>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>✕</Button>
+        </div>
+
+        <div className="space-y-4 py-4 text-xs">
+          <div>
+            <Label className="text-xs">Category</Label>
+            <Input value={category} onChange={(e) => setCategory(e.target.value)} className="h-8 mt-1 text-xs" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Urgency Priority</Label>
+              <Select value={urgency} onValueChange={(v) => { if (v) setUrgency(v as any); }}>
+                <SelectTrigger className="h-8 mt-1 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-xs">Severity Score (1-10)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={severity}
+                onChange={(e) => setSeverity(parseInt(e.target.value, 10) || 1)}
+                className="h-8 mt-1 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              id="legalRiskCheckbox"
+              checked={legalRisk}
+              onChange={(e) => setLegalRisk(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <Label htmlFor="legalRiskCheckbox" className="text-xs font-medium cursor-pointer">
+              Flag as High Legal / Statutory Risk
+            </Label>
+          </div>
+
+          <div>
+            <Label className="text-xs">Officer Correction Rationale / Notes</Label>
+            <Textarea
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Explain reason for adjusting AI classification..."
+              className="mt-1 text-xs"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button size="sm" onClick={handleSave} disabled={submitting} className="bg-blue-900 hover:bg-blue-800 text-white">
+            {submitting ? "Saving..." : "Save Correction & Retrain"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Multi-Language Translation Viewer (3.9) ────────────────────────────────
+function TranslationViewer({
+  description,
+  role,
+  isAssignedOfficer,
+}: {
+  description: string;
+  role: Role;
+  isAssignedOfficer: boolean;
+}) {
+  const [targetLang, setTargetLang] = useState<string>("Original");
+  const [translatedText, setTranslatedText] = useState<string>("");
+  const [translating, setTranslating] = useState<boolean>(false);
+  const [translationsCache, setTranslationsCache] = useState<Record<string, string>>({});
+
+  const handleLangChange = async (lang: string) => {
+    setTargetLang(lang);
+    if (lang === "Original") return;
+
+    if (translationsCache[lang]) {
+      setTranslatedText(translationsCache[lang]);
+      return;
+    }
+
+    const LANG_CODES: Record<string, string> = {
+      English: "en",
+      Hindi: "hi",
+      Marathi: "mr",
+      Tamil: "ta",
+      Bengali: "bn",
+      Telugu: "te",
+    };
+    const code = LANG_CODES[lang] || "en";
+
+    setTranslating(true);
+    try {
+      const res = await fetch("/api/ai/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: description, target_language: code }),
+      });
+      const data = await res.json();
+      const txt = data.translation?.translated_text || data.translated_text;
+      if (res.ok && txt) {
+        setTranslatedText(txt);
+        setTranslationsCache((prev) => ({ ...prev, [lang]: txt }));
+      }
+    } catch (err) {
+      console.error("Translation error:", err);
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const LANGUAGES = ["Original", "English", "Hindi", "Marathi", "Tamil", "Bengali", "Telugu"];
+
+  return (
+    <div className="space-y-3">
+      {/* Language Switcher Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+          <Languages className="h-3.5 w-3.5 text-blue-700" />
+          <span className="font-semibold">Language View:</span>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {LANGUAGES.map((lang) => (
+            <button
+              key={lang}
+              onClick={() => handleLangChange(lang)}
+              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                targetLang === lang
+                  ? "bg-blue-900 text-white shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {lang}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Render text: either Original with PII Redaction OR Translated text */}
+      {targetLang === "Original" ? (
+        <PIITextViewer
+          rawText={description}
+          role={role}
+          isAssignedOfficer={isAssignedOfficer}
+        />
+      ) : translating ? (
+        <div className="rounded-md bg-slate-50 p-6 text-center text-xs text-slate-500 animate-pulse">
+          Translating grievance into {targetLang}...
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="rounded-md bg-blue-50/50 p-3.5 leading-relaxed text-slate-800 ring-1 ring-blue-100 text-sm">
+            {translatedText}
+          </div>
+          <p className="text-[10px] text-slate-400 italic">
+            ✓ Translated into {targetLang} via AICTE Indic Domain Translation Engine (3.9).
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Action panel ───────────────────────────────────────────────────────────
-function ActionPanel({ c, readOnly }: { c: Complaint; readOnly: boolean }) {
+function ActionPanel({
+  c,
+  readOnly,
+  onOpenRagDialog,
+}: {
+  c: Complaint;
+  readOnly: boolean;
+  onOpenRagDialog?: () => void;
+}) {
   const { updateComplaint, audit } = useApp();
   const [status, setStatus] = useState<Status>(c.status);
   const [officer, setOfficer] = useState(c.assigned_officer);
@@ -290,6 +557,18 @@ function ActionPanel({ c, readOnly }: { c: Complaint; readOnly: boolean }) {
           <Button type="submit" disabled={readOnly} className="w-full bg-blue-900 hover:bg-blue-800">
             <Send className="mr-2 h-4 w-4" /> Update Case
           </Button>
+
+          {onOpenRagDialog && !readOnly && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onOpenRagDialog}
+              className="w-full border-blue-300 bg-blue-50/60 hover:bg-blue-100 text-blue-900 flex items-center justify-center gap-1.5 text-xs font-semibold"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-blue-700" /> AI Draft Statutory Reply (RAG)
+            </Button>
+          )}
+
           {msg && (
             <p className="flex items-center gap-1.5 text-xs text-emerald-700">
               <CheckCircle2 className="h-3.5 w-3.5" /> {msg}
@@ -322,6 +601,8 @@ export default function ComplaintPage() {
   const [revealedIdentity, setRevealedIdentity] = useState<any>(null);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [isUnmerging, setIsUnmerging] = useState(false);
+  const [ragDialogOpen, setRagDialogOpen] = useState(false);
+  const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
 
   const c = complaints.find((x) => x.id === id);
   if (!c) {
@@ -448,6 +729,77 @@ export default function ComplaintPage() {
 
       {/* Cross-bureau contradictory directive conflict banner */}
       <ConflictBanner complaintId={c.id} institutionId={c.institution_id} />
+
+      {/* 3.3 Distress & Sentiment SOS Banner */}
+      {c.has_distress && (
+        <DistressBanner
+          complaintId={c.id}
+          distress={c.distress_details}
+        />
+      )}
+
+      {/* 3.1 AI Categorisation & Priority Intelligence Strip */}
+      <div className="rounded-lg border border-blue-200 bg-gradient-to-r from-blue-50/80 via-indigo-50/40 to-white p-3.5 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1 text-xs font-bold text-blue-950">
+              <Bot className="h-4 w-4 text-blue-700" /> AI Classification:
+            </span>
+
+            {/* Urgency Badge */}
+            <span
+              className={`rounded-md px-2 py-0.5 text-xs font-semibold uppercase ${
+                (c.urgency || c.ai_predictions?.urgency) === "critical"
+                  ? "bg-red-600 text-white animate-pulse"
+                  : (c.urgency || c.ai_predictions?.urgency) === "high"
+                  ? "bg-orange-500 text-white"
+                  : (c.urgency || c.ai_predictions?.urgency) === "low"
+                  ? "bg-slate-200 text-slate-800"
+                  : "bg-blue-100 text-blue-800"
+              }`}
+            >
+              Priority: {c.urgency || c.ai_predictions?.urgency || "medium"}
+            </span>
+
+            {/* Severity Score */}
+            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 border border-slate-200">
+              Severity: {c.ai_predictions?.severity_score || (c.urgency === "critical" ? 9 : 6)}/10
+            </span>
+
+            {/* Legal Risk Flag */}
+            {(c.legal_risk || c.ai_predictions?.legal_risk) && (
+              <span className="flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-900 border border-amber-300">
+                <Scale className="h-3 w-3 text-amber-700" /> Legal Risk Flagged
+              </span>
+            )}
+
+            {/* Fraud Shield Tier */}
+            {c.fraud_score !== undefined && c.fraud_score > 30 && (
+              <span
+                className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold ${
+                  c.fraud_score >= 70
+                    ? "bg-red-100 text-red-800 border border-red-300"
+                    : "bg-amber-100 text-amber-800 border border-amber-200"
+                }`}
+              >
+                <ShieldAlert className="h-3 w-3" /> Fraud Score: {c.fraud_score}/100
+              </span>
+            )}
+          </div>
+
+          {/* Officer Edit AI Predictions Button */}
+          {isStaff && !readOnly && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setCorrectionModalOpen(true)}
+              className="h-7 text-xs border-blue-300 text-blue-900 hover:bg-blue-100 flex items-center gap-1"
+            >
+              <Edit3 className="h-3 w-3" /> Adjust AI Priority & Category
+            </Button>
+          )}
+        </div>
+      </div>
 
       {/* Merged Child Docket notification */}
       {c.is_merged && c.master_id && (
@@ -670,13 +1022,26 @@ export default function ComplaintPage() {
             </CardContent>
           </Card>
 
+          {/* 3.2 AI Case Summary */}
+          {c.description && (
+            <AISummaryCard
+              complaintId={c.id}
+              description={c.description}
+              category={c.category}
+              institutionName={inst?.name || ""}
+              initialSummary={c.ai_summary}
+            />
+          )}
+
           <Card className="border-slate-200 shadow-sm">
             <CardHeader><CardTitle className="text-blue-950">Complaint</CardTitle></CardHeader>
             <CardContent className="space-y-4 text-sm">
               {c.description ? (
-                <p className="rounded-md bg-slate-50 p-4 leading-relaxed text-slate-800 ring-1 ring-slate-200">
-                  {c.description}
-                </p>
+                <TranslationViewer
+                  description={c.description}
+                  role={role}
+                  isAssignedOfficer={c.assigned_officer === ACTOR[role]}
+                />
               ) : (
                 <div className="flex items-center gap-2 rounded-md bg-slate-100 p-4 text-sm text-slate-500 italic border border-slate-200">
                   <Lock className="h-4 w-4 text-slate-400" /> Restricted: grievance record owned by {c.bureau} bureau.
@@ -860,7 +1225,7 @@ export default function ComplaintPage() {
         </div>
 
         <div className="space-y-5">
-          <ActionPanel key={c.id} c={c} readOnly={readOnly} />
+          <ActionPanel key={c.id} c={c} readOnly={readOnly} onOpenRagDialog={() => setRagDialogOpen(true)} />
 
           <Card className="border-slate-200 shadow-sm">
             <CardHeader>
@@ -895,6 +1260,24 @@ export default function ComplaintPage() {
         onClose={() => setTasksOpen(false)}
         presetComplaintId={c.id}
       />
+
+      {/* 3.4 AI Precedent & RAG Statutory Reply Drafter */}
+      <RAGReplyDialog
+        isOpen={ragDialogOpen}
+        onClose={() => setRagDialogOpen(false)}
+        complaintId={c.id}
+        description={c.description || ""}
+        category={c.category}
+        institutionName={inst?.name || ""}
+      />
+
+      {/* 3.1 AI Predictions & Priority Correction Modal */}
+      {correctionModalOpen && (
+        <AICorrectionModal
+          complaint={c}
+          onClose={() => setCorrectionModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

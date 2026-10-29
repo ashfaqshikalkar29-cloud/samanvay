@@ -99,6 +99,15 @@ export interface Complaint {
   routing_rationale?: string;
   is_triage?: boolean;
   decision_type?: string;
+  // Phase 3 AI & Automation fields
+  ai_predictions?: any;
+  ai_summary?: any;
+  has_distress?: boolean;
+  distress_details?: any;
+  fraud_score?: number;
+  fraud_evaluation?: any;
+  urgency?: "low" | "medium" | "high" | "critical";
+  legal_risk?: boolean;
 }
 
 export interface AuditEntry {
@@ -138,11 +147,13 @@ export const seedComplaints: Complaint[] = [
   {
     id: "C-1001", tracking_id: "SMV-2026-001001", channel: "web", institution_id: "inst-1", bureau: "RB", status: "Pending",
     category: "Fee Regulation",
-    description: "Institute is charging tuition and development fees far above the AICTE approved fee structure for first-year B.Tech students.",
+    description: "Complainant: Rajesh Sharma (Phone: +91 9876543210, Email: rajesh.sharma@example.com, Aadhaar: 5432-8765-1098). Institute is charging illegal capitation fee of Rs. 1,45,000 in cash above the AICTE approved fee structure for first-year B.Tech students on 2026-09-15.",
     date_received: "2026-10-02", assigned_officer: "Dr. A. Kulkarni",
     is_overlap_flagged: false, overlap_links: [],
     next_action: "Issue show-cause notice to institution",
     complainant_phone_last4: "9812",
+    urgency: "high",
+    legal_risk: true,
   },
   {
     id: "C-1002", tracking_id: "SMV-2026-001002", channel: "mobile", institution_id: "inst-1", bureau: "PGRC", status: "In-Process",
@@ -260,6 +271,63 @@ export const seedComplaints: Complaint[] = [
     is_overlap_flagged: false, overlap_links: [],
     next_action: "Case closed — TC issued",
     complainant_phone_last4: "9910",
+  },
+  {
+    id: "C-1015", tracking_id: "SMV-2026-001015", channel: "helpline", institution_id: "inst-1", bureau: "PGRC", status: "Pending",
+    category: "Ragging",
+    description: "Severe physical harassment and verbal humiliation by 3rd year seniors in hostel Block-B after midnight. Facing extreme mental trauma, cannot sleep, feel suicidal and helpless. Please intervene immediately before something terrible happens.",
+    date_received: "2026-10-23", assigned_officer: "Ms. R. Iyer",
+    is_overlap_flagged: false, overlap_links: [],
+    next_action: "EMERGENCY: Immediate safety officer dispatch & Anti-Ragging committee intervention",
+    complainant_phone_last4: "3391",
+    urgency: "critical",
+    legal_risk: true,
+    has_distress: true,
+    distress_details: {
+      has_distress: true,
+      distress_category: "self_harm",
+      distress_score: 98,
+      matched_phrases: ["suicidal", "extreme mental trauma", "severe physical harassment", "ragging"],
+      immediate_safety_action: "IMMEDIATE EMERGENCY PROTOCOL: Alert AICTE Nodal Safety Officer, dispatch local anti-ragging team and notify institutional head.",
+      helpline_numbers: [
+        { name: "Tele-MANAS (Mental Health)", number: "14416 / 1800-891-4416", available: "24x7" },
+        { name: "National Anti-Ragging Helpline", number: "1800-180-5522", available: "24x7" },
+        { name: "Emergency Police Assistance", number: "112", available: "24x7" },
+      ],
+      safety_officer_notified: true,
+      notified_at: "2026-10-23T11:45:00Z",
+    },
+  },
+  {
+    id: "C-1016", tracking_id: "SMV-2026-001016", channel: "web", institution_id: "inst-3", bureau: "RB", status: "Pending",
+    category: "Fee Regulation",
+    description: "asdfgh qwertyuiop scamster bastard cheat institute thieves bloody corrupt dalal. Click here for free crypto casino 99999999999.",
+    date_received: "2026-10-23", assigned_officer: "Dr. A. Kulkarni",
+    is_overlap_flagged: false, overlap_links: [],
+    next_action: "Flagged by Anti-Spam Shield — awaiting officer review in Suspicious Queue",
+    complainant_phone_last4: "9999",
+    fraud_score: 92,
+    fraud_evaluation: {
+      complaint_id: "C-1016",
+      overall_score: 92,
+      risk_tier: "fraud_spam",
+      bot_probability: 0.95,
+      toxicity_score: 0.88,
+      coordinated_campaign_flag: true,
+      signals: [
+        "Spam / automated test filler pattern detected",
+        "Toxic / abusive language patterns identified",
+        "Excessive repeated characters / gibberish",
+        "Coordinated campaign pattern: 4 submissions from same /24 subnet within 24h",
+      ],
+      detected_at: "2026-10-23T14:22:00Z",
+      submission_source: {
+        ip_subnet: "192.168.4.x",
+        device_hash: "dev-f89a2b",
+        phone_prefix: "9999",
+      },
+      review_status: "pending",
+    },
   },
 ];
 

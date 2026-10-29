@@ -47,6 +47,15 @@ export type DbComplaint = {
   routing_rationale?: string | null;
   is_triage?: boolean | null;
   decision_type?: string | null;
+  // Phase 3 AI fields
+  ai_predictions?: any;
+  ai_summary?: any;
+  has_distress?: boolean | null;
+  distress_details?: any;
+  fraud_score?: number | null;
+  fraud_evaluation?: any;
+  urgency?: string | null;
+  legal_risk?: boolean | null;
   updated_at?: string;
 };
 
@@ -273,6 +282,14 @@ export function mapDbComplaintToApp(row: DbComplaint): Complaint {
     routing_rationale: row.routing_rationale ?? undefined,
     is_triage: Boolean(row.is_triage),
     decision_type: row.decision_type ?? undefined,
+    ai_predictions: row.ai_predictions ?? undefined,
+    ai_summary: row.ai_summary ?? undefined,
+    has_distress: Boolean(row.has_distress),
+    distress_details: row.distress_details ?? undefined,
+    fraud_score: row.fraud_score ?? undefined,
+    fraud_evaluation: row.fraud_evaluation ?? undefined,
+    urgency: (row.urgency as any) ?? undefined,
+    legal_risk: row.legal_risk !== undefined && row.legal_risk !== null ? Boolean(row.legal_risk) : undefined,
   };
 }
 
@@ -305,6 +322,14 @@ export function mapAppComplaintToDb(c: Complaint, dueDate?: string | null): DbCo
     routing_rationale: c.routing_rationale ?? null,
     is_triage: c.is_triage ?? false,
     decision_type: c.decision_type ?? null,
+    ai_predictions: c.ai_predictions ?? null,
+    ai_summary: c.ai_summary ?? null,
+    has_distress: c.has_distress ?? false,
+    distress_details: c.distress_details ?? null,
+    fraud_score: c.fraud_score ?? null,
+    fraud_evaluation: c.fraud_evaluation ?? null,
+    urgency: c.urgency ?? null,
+    legal_risk: c.legal_risk ?? false,
   };
 }
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AppProvider } from "@/lib/store";
 import { Header } from "@/components/header";
+import { ComplainantChatbot } from "@/components/complainant-chatbot";
 
 export const metadata: Metadata = {
   title: "Samanvay – AICTE Integrated Grievance Dashboard",
@@ -16,8 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Header />
           <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</main>
           <footer className="border-t bg-white py-4 text-center text-xs text-slate-500">
-            Samanvay · Prototype built for Smart India Hackathon · All data shown is fictional
+            Samanvay · AICTE Integrated Grievance Coordination System · Built for Smart India Hackathon
           </footer>
+          <ComplainantChatbot />
         </AppProvider>
       </body>
     </html>

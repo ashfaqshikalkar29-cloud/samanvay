@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Bell,
+  BookOpen,
+  Bot,
   Building2,
   FileBarChart2,
   FilePenLine,
@@ -17,6 +19,7 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  TrendingUp,
   User,
   UserCog,
 } from "lucide-react";
@@ -28,6 +31,7 @@ import { DEMO_TODAY, type Role } from "@/lib/mock";
 import { isTaskOverdue } from "@/lib/tasks";
 import { fmtDate } from "@/components/ui-bits";
 import { TasksDrawer } from "@/components/tasks-drawer";
+import { RulebookDrawer } from "@/components/rulebook-drawer";
 
 function BellPopover() {
   const { visible, sendReminder } = useApp();
@@ -109,11 +113,12 @@ function BellPopover() {
 }
 
 export function Header() {
-  const { mode, role, setRole, actor, resetDemo, signOut, user, profile, tasks } = useApp();
+  const { mode, role, setRole, actor, resetDemo, signOut, user, profile, tasks, suspiciousCases } = useApp();
   const pathname = usePathname();
   const [resetMenuOpen, setResetMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [tasksDrawerOpen, setTasksDrawerOpen] = useState(false);
+  const [rulebookDrawerOpen, setRulebookDrawerOpen] = useState(false);
 
   // If on /login page, keep header minimal
   const isLoginPage = pathname === "/login";
@@ -128,12 +133,23 @@ export function Header() {
     (t) => isTaskOverdue(t, DEMO_TODAY) && (role === "Admin" || role === "Chairperson" || t.to_bureau === myBureau)
   );
 
+  const pendingSuspicious = (suspiciousCases || []).filter(
+    (c) => !c.review_status || c.review_status === "pending"
+  ).length;
+
   const navLinks = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     ...(isStaff
       ? [
           { href: "/clusters", label: "Clusters", icon: Network },
           { href: "/watchlist", label: "Watchlist", icon: ShieldAlert },
+          { href: "/forecasts", label: "Forecasts", icon: TrendingUp },
+          {
+            href: "/suspicious",
+            label: "Suspicious",
+            icon: Bot,
+            badge: pendingSuspicious > 0 ? pendingSuspicious : undefined,
+          },
         ]
       : []),
     { href: "/institutions", label: "Institutions", icon: Building2 },
@@ -169,18 +185,23 @@ export function Header() {
           {/* Desktop nav (only when logged in / not on login page) */}
           {!isLoginPage && (
             <nav className="hidden lg:flex items-center gap-1">
-              {navLinks.map(({ href, label, icon: Icon }) => (
+              {navLinks.map(({ href, label, icon: Icon, badge }: any) => (
                 <Link
                   key={href}
                   href={href}
-                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs xl:text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs xl:text-sm font-medium transition-colors ${
                     pathname === href
                       ? "bg-white/15 text-white"
                       : "text-blue-200 hover:bg-white/10 hover:text-white"
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" />
-                  {label}
+                  <span>{label}</span>
+                  {badge && (
+                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                      {badge}
+                    </span>
+                  )}
                 </Link>
               ))}
             </nav>
@@ -188,6 +209,20 @@ export function Header() {
 
           {!isLoginPage && (
             <div className="flex items-center gap-2">
+              {/* AICTE Rulebook Q&A Assistant button */}
+              {isStaff && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Rulebook AI Assistant"
+                  className="relative text-amber-200 hover:bg-white/10 hover:text-white flex items-center gap-1.5 px-2.5 py-1 text-xs"
+                  onClick={() => setRulebookDrawerOpen(true)}
+                >
+                  <BookOpen className="h-4 w-4 text-amber-300" />
+                  <span className="hidden sm:inline">Rulebook AI</span>
+                </Button>
+              )}
+
               {/* Inter-bureau Tasks button with live badge */}
               {isStaff && (
                 <Button
@@ -308,7 +343,7 @@ export function Header() {
         {/* Mobile nav strip */}
         {!isLoginPage && (
           <div className="flex lg:hidden border-t border-white/10 overflow-x-auto px-4 pb-2 gap-1">
-            {navLinks.map(({ href, label, icon: Icon }) => (
+            {navLinks.map(({ href, label, icon: Icon, badge }: any) => (
               <Link
                 key={href}
                 href={href}
@@ -317,7 +352,12 @@ export function Header() {
                 }`}
               >
                 <Icon className="h-3 w-3" />
-                {label}
+                <span>{label}</span>
+                {badge && (
+                  <span className="flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                    {badge}
+                  </span>
+                )}
               </Link>
             ))}
           </div>
@@ -326,6 +366,9 @@ export function Header() {
 
       {/* Inter-bureau task management drawer */}
       <TasksDrawer isOpen={tasksDrawerOpen} onClose={() => setTasksDrawerOpen(false)} />
+
+      {/* AICTE Rulebook Q&A Knowledge Assistant Drawer */}
+      <RulebookDrawer isOpen={rulebookDrawerOpen} onClose={() => setRulebookDrawerOpen(false)} />
     </header>
   );
 }

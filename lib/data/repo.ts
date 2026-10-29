@@ -24,12 +24,23 @@ import { CaseEvent, SEED_CASE_EVENTS } from "@/lib/timeline";
 import { InterBureauTask, SEED_INTER_BUREAU_TASKS } from "@/lib/tasks";
 import { ConflictAlert, SEED_CONFLICT_ALERTS, detectConflicts } from "@/lib/conflicts";
 import { RoutingFeedbackRecord } from "@/lib/classifier";
+import { FraudEvaluation, AICorrectionLog } from "@/lib/ai/types";
+import { defaultFraudEngine } from "@/lib/ai/fraud";
 
 export interface UpdatePatch {
+  category?: string;
   status?: Complaint["status"];
   assigned_officer?: string;
   remark?: string;
   next_action?: string;
+  ai_predictions?: any;
+  ai_summary?: any;
+  has_distress?: boolean;
+  distress_details?: any;
+  fraud_score?: number;
+  fraud_evaluation?: any;
+  urgency?: "low" | "medium" | "high" | "critical";
+  legal_risk?: boolean;
 }
 
 export interface AdjudicationPatch {
@@ -69,6 +80,11 @@ export interface Repo {
   mergeComplaints(masterId: string, childIds: string[], leadBureau: Bureau, officer: string): Promise<boolean>;
   unmergeComplaint(childId: string, officer: string): Promise<boolean>;
   recordRoutingFeedback(feedback: RoutingFeedbackRecord): Promise<void>;
+
+  // Phase 3 AI & Automation Methods
+  getSuspiciousComplaints(): Promise<FraudEvaluation[]>;
+  reviewFraudCase(complaintId: string, decision: "cleared_legitimate" | "confirmed_spam", officer: string): Promise<void>;
+  recordAICorrection(correction: AICorrectionLog): Promise<void>;
 }
 
 // ── In-Memory Repository (with localStorage persistence) ────────────────────
@@ -81,6 +97,71 @@ const LS_EVENTS = "sam_case_events";
 const LS_TASKS = "sam_inter_tasks";
 const LS_CONFLICTS = "sam_conflicts";
 const LS_FEEDBACK = "sam_routing_feedback";
+const LS_FRAUD = "sam_fraud_evaluations";
+const LS_CORRECTIONS = "sam_ai_corrections";
+
+export const SEED_FRAUD_EVALUATIONS: FraudEvaluation[] = [
+  {
+    complaint_id: "C-1016",
+    overall_score: 92,
+    risk_tier: "fraud_spam",
+    bot_probability: 0.95,
+    toxicity_score: 0.88,
+    coordinated_campaign_flag: true,
+    signals: [
+      "Spam / automated test filler pattern detected",
+      "Toxic / abusive language patterns identified",
+      "Excessive repeated characters / gibberish",
+      "Coordinated campaign pattern: 4 submissions from same /24 subnet within 24h",
+    ],
+    detected_at: "2026-10-23T14:22:00Z",
+    submission_source: {
+      ip_subnet: "192.168.4.x",
+      device_hash: "dev-f89a2b",
+      phone_prefix: "9999",
+    },
+    review_status: "pending",
+  },
+  {
+    complaint_id: "C-1002",
+    overall_score: 68,
+    risk_tier: "suspicious",
+    bot_probability: 0.25,
+    toxicity_score: 0.72,
+    coordinated_campaign_flag: true,
+    signals: [
+      "High volume burst: 3 similar grievances targeting inst-1 within 48h",
+      "Elevated pressure keywords detected",
+    ],
+    detected_at: "2026-10-10T09:15:00Z",
+    submission_source: {
+      ip_subnet: "10.0.12.x",
+      device_hash: "dev-c14a90",
+      phone_prefix: "4421",
+    },
+    review_status: "pending",
+  },
+  {
+    complaint_id: "C-1007",
+    overall_score: 55,
+    risk_tier: "suspicious",
+    bot_probability: 0.15,
+    toxicity_score: 0.40,
+    coordinated_campaign_flag: false,
+    signals: [
+      "Unusual submission channel burst (WhatsApp gateway webhook anomaly)",
+    ],
+    detected_at: "2026-10-16T11:00:00Z",
+    submission_source: {
+      ip_subnet: "172.16.8.x",
+      device_hash: "dev-e223b1",
+      phone_prefix: "5542",
+    },
+    review_status: "cleared_legitimate",
+    reviewed_by: "Ms. R. Iyer",
+    reviewed_at: "2026-10-17T10:00:00Z",
+  },
+];
 
 const ENGINE = "Samanvay Overlap Engine";
 const ENGINE_TS = "2026-10-24T05:30:00.000Z";
@@ -147,6 +228,8 @@ class MemoryRepo implements Repo {
   private tasks: InterBureauTask[] = [];
   private conflicts: ConflictAlert[] = [];
   private feedbacks: RoutingFeedbackRecord[] = [];
+  private fraudEvaluations: FraudEvaluation[] = [];
+  private aiCorrections: AICorrectionLog[] = [];
   private initialized = false;
 
   private init() {
@@ -168,6 +251,8 @@ class MemoryRepo implements Repo {
         const st = localStorage.getItem(LS_TASKS);
         const scf = localStorage.getItem(LS_CONFLICTS);
         const sfb = localStorage.getItem(LS_FEEDBACK);
+        const sfr = localStorage.getItem(LS_FRAUD);
+        const scr = localStorage.getItem(LS_CORRECTIONS);
 
         const loaded = sc ? (JSON.parse(sc) as Complaint[]) : initialComplaints;
         this.complaints = loaded.map((c) => ({
@@ -184,6 +269,8 @@ class MemoryRepo implements Repo {
         this.tasks = st ? JSON.parse(st) : [...SEED_INTER_BUREAU_TASKS];
         this.conflicts = scf ? JSON.parse(scf) : [...SEED_CONFLICT_ALERTS];
         this.feedbacks = sfb ? JSON.parse(sfb) : [];
+        this.fraudEvaluations = sfr ? JSON.parse(sfr) : [...SEED_FRAUD_EVALUATIONS];
+        this.aiCorrections = scr ? JSON.parse(scr) : [];
       } catch {
         this.complaints = initialComplaints;
         this.audit = initialAudit;
@@ -192,6 +279,8 @@ class MemoryRepo implements Repo {
         this.tasks = [...SEED_INTER_BUREAU_TASKS];
         this.conflicts = [...SEED_CONFLICT_ALERTS];
         this.feedbacks = [];
+        this.fraudEvaluations = [...SEED_FRAUD_EVALUATIONS];
+        this.aiCorrections = [];
       }
     } else {
       this.complaints = initialComplaints;
@@ -201,6 +290,8 @@ class MemoryRepo implements Repo {
       this.tasks = [...SEED_INTER_BUREAU_TASKS];
       this.conflicts = [...SEED_CONFLICT_ALERTS];
       this.feedbacks = [];
+      this.fraudEvaluations = [...SEED_FRAUD_EVALUATIONS];
+      this.aiCorrections = [];
     }
     this.initialized = true;
   }
@@ -216,6 +307,8 @@ class MemoryRepo implements Repo {
       localStorage.setItem(LS_TASKS, JSON.stringify(this.tasks));
       localStorage.setItem(LS_CONFLICTS, JSON.stringify(this.conflicts));
       localStorage.setItem(LS_FEEDBACK, JSON.stringify(this.feedbacks));
+      localStorage.setItem(LS_FRAUD, JSON.stringify(this.fraudEvaluations));
+      localStorage.setItem(LS_CORRECTIONS, JSON.stringify(this.aiCorrections));
     } catch {
       // quota or private browsing
     }
@@ -242,9 +335,18 @@ class MemoryRepo implements Repo {
 
     this.complaints[idx] = {
       ...target,
+      category: patch.category !== undefined ? patch.category : target.category,
       status: newStatus,
       assigned_officer: newOfficer,
       next_action: newNextAction,
+      ai_predictions: patch.ai_predictions !== undefined ? patch.ai_predictions : target.ai_predictions,
+      ai_summary: patch.ai_summary !== undefined ? patch.ai_summary : target.ai_summary,
+      has_distress: patch.has_distress !== undefined ? patch.has_distress : target.has_distress,
+      distress_details: patch.distress_details !== undefined ? patch.distress_details : target.distress_details,
+      fraud_score: patch.fraud_score !== undefined ? patch.fraud_score : target.fraud_score,
+      fraud_evaluation: patch.fraud_evaluation !== undefined ? patch.fraud_evaluation : target.fraud_evaluation,
+      urgency: patch.urgency !== undefined ? patch.urgency : target.urgency,
+      legal_risk: patch.legal_risk !== undefined ? patch.legal_risk : target.legal_risk,
     };
 
     // Auto-mirror updates to merged child cases
@@ -613,6 +715,84 @@ class MemoryRepo implements Repo {
     this.persist();
   }
 
+  async getSuspiciousComplaints(): Promise<FraudEvaluation[]> {
+    this.init();
+    return [...this.fraudEvaluations];
+  }
+
+  async reviewFraudCase(complaintId: string, decision: "cleared_legitimate" | "confirmed_spam", officer: string): Promise<void> {
+    this.init();
+    const idx = this.fraudEvaluations.findIndex((f) => f.complaint_id === complaintId);
+    if (idx !== -1) {
+      this.fraudEvaluations[idx] = {
+        ...this.fraudEvaluations[idx],
+        review_status: decision,
+        reviewed_by: officer,
+        reviewed_at: new Date().toISOString(),
+      };
+    } else {
+      this.fraudEvaluations.push({
+        complaint_id: complaintId,
+        overall_score: decision === "confirmed_spam" ? 95 : 20,
+        risk_tier: decision === "confirmed_spam" ? "fraud_spam" : "clean",
+        bot_probability: decision === "confirmed_spam" ? 0.9 : 0.1,
+        toxicity_score: 0,
+        coordinated_campaign_flag: false,
+        signals: [decision === "confirmed_spam" ? "Manually confirmed spam / blocked by officer" : "Manually cleared legitimate by officer"],
+        detected_at: new Date().toISOString(),
+        review_status: decision,
+        reviewed_by: officer,
+        reviewed_at: new Date().toISOString(),
+      });
+    }
+
+    // Mirror action onto the complaint record
+    const cIdx = this.complaints.findIndex((c) => c.id === complaintId);
+    if (cIdx !== -1) {
+      if (decision === "confirmed_spam") {
+        this.complaints[cIdx] = {
+          ...this.complaints[cIdx],
+          status: "Disposed",
+          next_action: `Case Disposed: Confirmed spam / fraudulent submission by ${officer}`,
+        };
+      } else {
+        this.complaints[cIdx] = {
+          ...this.complaints[cIdx],
+          next_action: `Cleared legitimate by ${officer}; active in standard queue`,
+        };
+      }
+    }
+
+    this.audit.push({
+      complaint_id: complaintId,
+      action: "Fraud Review Adjudicated",
+      timestamp: new Date().toISOString(),
+      officer,
+      remarks: `Fraud review completed: ${decision}. Action taken: ${
+        decision === "confirmed_spam" ? "Case marked as Disposed (Spam/Fraudulent)" : "Case cleared for standard queue processing"
+      }.`,
+    });
+
+    this.events.unshift({
+      id: `evt-fraud-${complaintId}-${Date.now()}`,
+      complaint_id: complaintId,
+      bureau: "System",
+      event_type: "status_change",
+      actor: officer,
+      title: decision === "confirmed_spam" ? "Case Disposed as Spam / Fraudulent" : "Grievance Cleared as Legitimate",
+      description: `Security review conducted by ${officer}. Verdict: ${decision}.`,
+      created_at: new Date().toISOString(),
+    });
+
+    this.persist();
+  }
+
+  async recordAICorrection(correction: AICorrectionLog): Promise<void> {
+    this.init();
+    this.aiCorrections.unshift(correction);
+    this.persist();
+  }
+
   reset(): void {
     if (typeof window !== "undefined") {
       localStorage.removeItem(LS_COMPLAINTS);
@@ -623,6 +803,8 @@ class MemoryRepo implements Repo {
       localStorage.removeItem(LS_TASKS);
       localStorage.removeItem(LS_CONFLICTS);
       localStorage.removeItem(LS_FEEDBACK);
+      localStorage.removeItem(LS_FRAUD);
+      localStorage.removeItem(LS_CORRECTIONS);
     }
     this.initialized = false;
     this.init();
@@ -1056,6 +1238,18 @@ class SupabaseRepo implements Repo {
     } catch {
       await memoryRepo.recordRoutingFeedback(feedback);
     }
+  }
+
+  async getSuspiciousComplaints(): Promise<FraudEvaluation[]> {
+    return memoryRepo.getSuspiciousComplaints();
+  }
+
+  async reviewFraudCase(complaintId: string, decision: "cleared_legitimate" | "confirmed_spam", officer: string): Promise<void> {
+    return memoryRepo.reviewFraudCase(complaintId, decision, officer);
+  }
+
+  async recordAICorrection(correction: AICorrectionLog): Promise<void> {
+    return memoryRepo.recordAICorrection(correction);
   }
 }
 

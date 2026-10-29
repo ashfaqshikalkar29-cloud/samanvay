@@ -32,6 +32,8 @@ import { InterBureauTask } from "./tasks";
 import { ConflictAlert } from "./conflicts";
 import { ComplaintCluster, generateComplaintClusters } from "./clustering";
 import { WatchlistedInstitute, computeWatchlist } from "./watchlist";
+import { FraudEvaluation, AICorrectionLog } from "./ai/types";
+import { defaultFraudEngine } from "./ai/fraud";
 
 const ENGINE = "Samanvay Overlap Engine";
 
@@ -80,6 +82,11 @@ interface Store {
   unmergeComplaint: (childId: string) => Promise<boolean>;
   getEvents: (complaintId: string) => Promise<CaseEvent[]>;
   addEvent: (event: CaseEvent) => Promise<void>;
+
+  // Phase 3 AI & Automation
+  suspiciousCases: FraudEvaluation[];
+  reviewFraudCase: (complaintId: string, decision: "cleared_legitimate" | "confirmed_spam") => Promise<void>;
+  recordAICorrection: (correction: AICorrectionLog) => Promise<void>;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -106,6 +113,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<InterBureauTask[]>([]);
   const [conflicts, setConflicts] = useState<ConflictAlert[]>([]);
   const [clusters, setClusters] = useState<ComplaintCluster[]>([]);
+  const [suspiciousCases, setSuspiciousCases] = useState<FraudEvaluation[]>([]);
 
   const lastSyncSignatureRef = useRef<string>("");
 
@@ -181,12 +189,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const data = await repo.loadAll();
       const taskList = await repo.getTasks();
       const conflictList = await repo.getConflicts();
+      const suspiciousList = await repo.getSuspiciousComplaints();
       setInstitutions(data.institutions);
       setRawComplaints(data.complaints);
       setAudit(data.audit);
       setOverlapAlerts(data.alerts);
       setTasks(taskList);
       setConflicts(conflictList);
+      setSuspiciousCases(suspiciousList);
     } catch (err: any) {
       console.error("Error loading data from repository:", err);
       setError(err.message || "Failed to load data. Please retry.");
@@ -691,6 +701,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     router.push("/login");
   }, [mode, router]);
 
+  const reviewFraudCase = useCallback(
+    async (complaintId: string, decision: "cleared_legitimate" | "confirmed_spam") => {
+      await repo.reviewFraudCase(complaintId, decision, actorName);
+      const updated = await repo.getSuspiciousComplaints();
+      setSuspiciousCases(updated);
+    },
+    [repo, actorName]
+  );
+
+  const recordAICorrection = useCallback(
+    async (correction: AICorrectionLog) => {
+      await repo.recordAICorrection(correction);
+    },
+    [repo]
+  );
+
   const value: Store = {
     mode,
     role,
@@ -728,6 +754,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     unmergeComplaint,
     getEvents,
     addEvent,
+    suspiciousCases,
+    reviewFraudCase,
+    recordAICorrection,
   };
 
   // Screen when account has no role assigned
