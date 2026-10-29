@@ -1,8 +1,18 @@
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
+import {
+  Globe,
+  Smartphone,
+  Mail,
+  MessageSquare,
+  PhoneCall,
+  UserCheck,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { Bureau, Status } from "@/lib/mock";
+import type { Bureau, Status, Channel } from "@/lib/mock";
 import type { SlaState } from "@/lib/sla";
 
 /** Styled link that looks like a Button — replaces <Button asChild> pattern. */
@@ -88,3 +98,84 @@ export const fmtDateTime = (iso: string) =>
     timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit", hour12: false,
   });
+
+const CHANNEL_CONFIG: Record<Channel, { label: string; icon: React.ElementType; style: string }> = {
+  web: { label: "Web Portal", icon: Globe, style: "border-blue-200 bg-blue-50 text-blue-700" },
+  mobile: { label: "Mobile App", icon: Smartphone, style: "border-indigo-200 bg-indigo-50 text-indigo-700" },
+  email: { label: "Email Intake", icon: Mail, style: "border-purple-200 bg-purple-50 text-purple-700" },
+  whatsapp: { label: "WhatsApp Bot", icon: MessageSquare, style: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  helpline: { label: "National Helpline", icon: PhoneCall, style: "border-amber-200 bg-amber-50 text-amber-800" },
+  "walk-in": { label: "Walk-In Docket", icon: UserCheck, style: "border-slate-300 bg-slate-100 text-slate-800" },
+};
+
+export function ChannelBadge({ channel }: { channel?: Channel }) {
+  const conf = CHANNEL_CONFIG[channel || "web"] || CHANNEL_CONFIG.web;
+  const Icon = conf.icon;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        conf.style
+      )}
+    >
+      <Icon className="h-3 w-3 shrink-0" />
+      <span>{conf.label}</span>
+    </span>
+  );
+}
+
+export function QrCodeView({
+  value,
+  size = 140,
+  className,
+}: {
+  value: string;
+  size?: number;
+  className?: string;
+}) {
+  const [dataUrl, setDataUrl] = useState<string>("");
+
+  useEffect(() => {
+    let active = true;
+    QRCode.toDataURL(value, {
+      width: size * 2,
+      margin: 1.5,
+      color: {
+        dark: "#0f172a",
+        light: "#ffffff",
+      },
+    })
+      .then((url) => {
+        if (active) setDataUrl(url);
+      })
+      .catch((err) => console.error("QR Code generation error:", err));
+
+    return () => {
+      active = false;
+    };
+  }, [value, size]);
+
+  if (!dataUrl) {
+    return (
+      <div
+        style={{ width: size, height: size }}
+        className={cn("flex items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-400", className)}
+      >
+        Generating QR...
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("inline-block rounded-xl border border-slate-200 bg-white p-2 shadow-sm", className)}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={dataUrl}
+        alt={`QR Code for ${value}`}
+        width={size}
+        height={size}
+        className="rounded-lg"
+      />
+    </div>
+  );
+}

@@ -107,9 +107,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Derived: visible complaints for dashboard table
   const visible = useMemo(() => {
-    if (role === "Admin") return complaints;
-    const bureau = role === "RB Officer" ? "RB" : "PGRC";
-    return complaints.filter((c) => c.bureau === bureau);
+    if (role === "Admin" || role === "Chairperson") return complaints;
+    if (role === "RB Officer") return complaints.filter((c) => c.bureau === "RB");
+    if (role === "PGRC Officer") return complaints.filter((c) => c.bureau === "PGRC");
+    if (role === "Institute") return complaints.filter((c) => c.institution_id === "inst-1" || c.institution_id === "inst-2");
+    if (role === "Complainant") return complaints.filter((c) => c.channel === "web" || c.is_anonymous);
+    return complaints;
   }, [role, complaints]);
 
   // Actor display string

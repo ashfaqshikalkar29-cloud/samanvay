@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import {
   ArrowLeft, ArrowRight, Building2, CheckCircle2, Clock, GitMerge,
-  History, Lock, Send, User,
+  History, Lock, Send, User, ShieldAlert, Eye, EyeOff, Paperclip,
+  FileText, FileAudio, FileVideo, Image as ImageIcon, Download, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,10 +14,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { BureauBadge, LinkButton, SlaBadge, StatusBadge, fmtDate, fmtDateTime } from "@/components/ui-bits";
+import { BureauBadge, ChannelBadge, LinkButton, SlaBadge, StatusBadge, fmtDate, fmtDateTime } from "@/components/ui-bits";
 import { useApp } from "@/lib/store";
 import { getSla } from "@/lib/sla";
 import { ACTOR, OFFICERS, type Bureau, type Complaint, type Status } from "@/lib/mock";
+import { CATEGORY_SCHEMAS } from "@/lib/intake-schemas";
 
 // ── Adjudication dialog ────────────────────────────────────────────────────
 function AdjudicateDialog({
@@ -90,6 +92,114 @@ function AdjudicateDialog({
           >
             <GitMerge className="mr-1.5 h-3.5 w-3.5" />
             {decision === "Confirmed Duplicate" ? "Confirm Duplicate" : "Mark Not Related"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Confidential Identity Reveal Dialog ────────────────────────────────────
+function AnonymousRevealDialog({
+  complaintId,
+  onClose,
+  onRevealed,
+}: {
+  complaintId: string;
+  onClose: () => void;
+  onRevealed: (data: any) => void;
+}) {
+  const { role } = useApp();
+  const [reason, setReason] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleReveal = async () => {
+    if (reason.trim().length < 15) {
+      setError("Please provide a statutory justification of at least 15 characters.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/complaints/anonymous-reveal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          complaint_id: complaintId,
+          role,
+          officer_name: ACTOR[role],
+          reason: reason.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to reveal identity.");
+      }
+      onRevealed(data.identity);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || "Failed to access confidential identity.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-xl border border-red-200 bg-white shadow-2xl">
+        <div className="border-b border-red-100 bg-red-50/50 px-6 py-4">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-5 w-5 text-red-600" />
+            <p className="text-base font-semibold text-slate-900">
+              Access Confidential Complainant Identity
+            </p>
+          </div>
+          <p className="text-xs text-slate-600 mt-1">
+            Grievance Reference: <span className="font-mono font-medium">{complaintId}</span>
+          </p>
+        </div>
+        <div className="space-y-4 px-6 py-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            <p className="font-semibold">⚠️ Mandatory Statutory Audit Requirement</p>
+            <p className="mt-1">
+              Unmasking whistleblower identity is permanently recorded in the immutable audit log with your name (<span className="font-medium">{ACTOR[role]}</span>), timestamp, and justification reason.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="revealReason">
+              Official Justification / Reason <span className="text-red-500">*</span>
+            </Label>
+            <Textarea
+              id="revealReason"
+              value={reason}
+              onChange={(e) => {
+                setReason(e.target.value);
+                if (error) setError(null);
+              }}
+              placeholder="e.g., Required for initiating formal AICTE fact-finding committee inquiry as sanctioned by Chairperson."
+              rows={3}
+            />
+            <p className="text-[11px] text-slate-500">Minimum 15 characters required.</p>
+          </div>
+
+          {error && (
+            <p className="text-xs text-red-600 font-medium">{error}</p>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={loading || reason.trim().length < 15}
+            className="bg-red-700 hover:bg-red-800 text-white"
+            onClick={handleReveal}
+          >
+            <Eye className="mr-1.5 h-3.5 w-3.5" />
+            {loading ? "Verifying..." : "Confirm & Unmask Identity"}
           </Button>
         </div>
       </div>
@@ -194,6 +304,8 @@ export default function ComplaintPage() {
   const [adjState, setAdjState] = useState<{
     alertId: string; otherCaseId: string; decision: "Confirmed Duplicate" | "Dismissed (Distinct)";
   } | null>(null);
+  const [showRevealModal, setShowRevealModal] = useState(false);
+  const [revealedIdentity, setRevealedIdentity] = useState<any>(null);
 
   const c = complaints.find((x) => x.id === id);
   if (!c) {
@@ -230,14 +342,33 @@ export default function ComplaintPage() {
         />
       )}
 
+      {showRevealModal && (
+        <AnonymousRevealDialog
+          complaintId={c.id}
+          onClose={() => setShowRevealModal(false)}
+          onRevealed={(data) => setRevealedIdentity(data)}
+        />
+      )}
+
       <LinkButton href="/" variant="ghost" size="sm" className="-ml-2 text-slate-600 flex items-center">
         <ArrowLeft className="mr-1 h-4 w-4" /> Dashboard
       </LinkButton>
 
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold text-blue-950">{c.id}</h1>
+        {c.tracking_id && (
+          <span className="font-mono text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-300">
+            {c.tracking_id}
+          </span>
+        )}
         <BureauBadge bureau={c.bureau} />
         <StatusBadge status={c.status} />
+        <ChannelBadge channel={c.channel} />
+        {c.is_anonymous && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-300 bg-purple-50 px-2.5 py-0.5 text-xs font-semibold text-purple-900">
+            <ShieldAlert className="h-3.5 w-3.5 text-purple-700" /> Confidential
+          </span>
+        )}
         <SlaBadge state={sla.state} daysLeft={sla.daysLeft} />
         <span className="text-sm text-slate-500">{c.category}</span>
       </div>
@@ -419,6 +550,163 @@ export default function ComplaintPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Whistleblower / Confidential Identity Box */}
+          {c.is_anonymous && (
+            <Card className="border-purple-200 bg-purple-50/40 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-purple-950 text-base">
+                  <ShieldAlert className="h-5 w-5 text-purple-700" /> Whistleblower / Confidential Grievance
+                </CardTitle>
+                <CardDescription className="text-purple-800/80">
+                  Complainant personal details are stored encrypted. Unmasking is strictly restricted to Admin and Chairperson per statutory whistleblower rules.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {revealedIdentity ? (
+                  <div className="rounded-lg border border-purple-200 bg-white p-4 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-purple-700">Decrypted Identity Record</span>
+                      <Button size="sm" variant="ghost" className="h-6 text-xs text-slate-500" onClick={() => setRevealedIdentity(null)}>
+                        <EyeOff className="mr-1 h-3 w-3" /> Hide
+                      </Button>
+                    </div>
+                    <div className="grid gap-2 text-xs sm:grid-cols-2">
+                      <div>
+                        <p className="text-slate-400 uppercase text-[10px]">Full Name</p>
+                        <p className="font-semibold text-slate-900">{revealedIdentity.name || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 uppercase text-[10px]">Contact Phone</p>
+                        <p className="font-semibold text-slate-900">{revealedIdentity.phone || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 uppercase text-[10px]">Email Address</p>
+                        <p className="font-semibold text-slate-900">{revealedIdentity.email || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 uppercase text-[10px]">Address</p>
+                        <p className="font-semibold text-slate-900">{revealedIdentity.address || "—"}</p>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-emerald-700 pt-1">
+                      ✓ Identity unmasking was logged in the audit trail.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-purple-200/70 bg-white/80 p-3">
+                    <div className="text-xs text-slate-600">
+                      <span className="font-semibold text-slate-800">Identity Status:</span> Encrypted in secure enclave.
+                      {c.complainant_phone_last4 && ` (Verified phone ending in ****${c.complainant_phone_last4})`}
+                    </div>
+                    {role === "Admin" || role === "Chairperson" ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs border-purple-300 text-purple-900 hover:bg-purple-100"
+                        onClick={() => setShowRevealModal(true)}
+                      >
+                        <Eye className="mr-1.5 h-3.5 w-3.5" /> Reveal Identity (Statutory Justification)
+                      </Button>
+                    ) : (
+                      <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                        <Lock className="h-3 w-3" /> Unmasking restricted to Admin & Chairperson
+                      </span>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Dynamic Category Specific Details */}
+          {c.dynamic_fields && Object.keys(c.dynamic_fields).filter((k) => !k.startsWith("_")).length > 0 && (
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-950 text-base">
+                  <FileText className="h-4 w-4 text-blue-800" /> Category-Specific Parameters ({c.category})
+                </CardTitle>
+                <CardDescription>
+                  Dynamic schema fields captured for this specific norm category
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <dl className="grid gap-3 sm:grid-cols-2">
+                  {Object.entries(c.dynamic_fields)
+                    .filter(([key]) => !key.startsWith("_"))
+                    .map(([key, value]) => {
+                      const schema = Object.values(CATEGORY_SCHEMAS).find((s) => s.fields.some((f) => f.id === key));
+                      const field = schema?.fields.find((f) => f.id === key);
+                      const label = field?.label || key.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase());
+                      return (
+                        <div key={key} className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                          <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">{label}</dt>
+                          <dd className="mt-1 text-sm font-medium text-slate-900 break-words">
+                            {typeof value === "boolean" ? (value ? "Yes" : "No") : String(value || "—")}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                </dl>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Attached Evidence */}
+          {c.evidence && c.evidence.length > 0 && (
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-950 text-base">
+                  <Paperclip className="h-4 w-4 text-blue-800" /> Attached Evidence ({c.evidence.length})
+                </CardTitle>
+                <CardDescription>
+                  Verified documents and media uploaded with this complaint
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  {c.evidence.map((file, idx) => {
+                    const isImg = file.type.startsWith("image/");
+                    const isAudio = file.type.startsWith("audio/");
+                    const isVideo = file.type.startsWith("video/");
+                    const Icon = isImg ? ImageIcon : isAudio ? FileAudio : isVideo ? FileVideo : FileText;
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm hover:border-blue-300 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+                            <Icon className="h-5 w-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-medium text-slate-900">{file.name}</p>
+                            <p className="text-[10px] text-slate-500">
+                              {(file.size / 1024).toFixed(1)} KB · {file.type.split("/")[1]?.toUpperCase() || file.type}
+                            </p>
+                          </div>
+                        </div>
+                        {file.dataUrl || file.url ? (
+                          <a
+                            href={file.dataUrl || file.url}
+                            download={file.name}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="shrink-0 p-1.5 text-slate-500 hover:text-blue-700 rounded-md hover:bg-slate-100"
+                            title="Download / View"
+                          >
+                            <Download className="h-4 w-4" />
+                          </a>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 italic">Archived</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-5">

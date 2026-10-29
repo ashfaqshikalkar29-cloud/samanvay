@@ -48,6 +48,9 @@ async function seed() {
       aicte_id: i.aicte_id,
       name: i.name,
       region: i.region,
+      state: i.state,
+      district: i.district,
+      programmes: i.programmes,
     }))
   );
   if (instError) {
@@ -73,6 +76,13 @@ async function seed() {
     next_action: c.next_action,
     due_date: getSla(c).due,
     is_overlap_flagged: c.is_overlap_flagged,
+    channel: c.channel || "web",
+    tracking_id: c.tracking_id || c.id,
+    is_anonymous: c.is_anonymous || false,
+    dynamic_fields: c.dynamic_fields || {},
+    evidence: c.evidence || [],
+    complainant_phone_last4: c.complainant_phone_last4 || null,
+    anonymous_access_key: c.anonymous_access_key || null,
     updated_at: new Date().toISOString(),
   }));
 

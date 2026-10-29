@@ -37,8 +37,20 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const isLoginPage = request.nextUrl.pathname.startsWith("/login");
+  const isPublicRoute =
+    request.nextUrl.pathname.startsWith("/new") ||
+    request.nextUrl.pathname.startsWith("/track") ||
+    request.nextUrl.pathname.startsWith("/api/intake") ||
+    request.nextUrl.pathname.startsWith("/api/otp") ||
+    request.nextUrl.pathname.startsWith("/api/institutes") ||
+    request.nextUrl.pathname.startsWith("/api/track") ||
+    request.nextUrl.pathname.startsWith("/api/complaints/anonymous-reveal") ||
+    request.nextUrl.pathname.startsWith("/api/evidence");
 
-  if (!user && !isLoginPage) {
+  if (!user && !isLoginPage && !isPublicRoute) {
+    if (request.nextUrl.pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized: Staff authentication required." }, { status: 401 });
+    }
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     return NextResponse.redirect(redirectUrl);

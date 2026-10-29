@@ -11,10 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { BureauBadge, LinkButton, SlaBadge, StatusBadge, fmtDate } from "@/components/ui-bits";
+import { BureauBadge, ChannelBadge, LinkButton, SlaBadge, StatusBadge, fmtDate } from "@/components/ui-bits";
 import { useApp } from "@/lib/store";
 import { getSla } from "@/lib/sla";
-import { DEMO_TODAY, type Status } from "@/lib/mock";
+import { DEMO_TODAY, type Status, type Channel } from "@/lib/mock";
 
 function Kpi({
   label, value, hint, icon: Icon, tone,
@@ -58,6 +58,7 @@ export default function DashboardPage() {
   } = useApp();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"All" | Status>("All");
+  const [channelFilter, setChannelFilter] = useState<"All" | Channel>("All");
   const [openOnly, setOpenOnly] = useState(true);
   const [showSlider, setShowSlider] = useState(false);
 
@@ -100,25 +101,35 @@ export default function DashboardPage() {
     const q = query.trim().toLowerCase();
     return visible
       .filter((c) => filter === "All" || c.status === filter)
+      .filter((c) => channelFilter === "All" || c.channel === channelFilter)
       .filter((c) => {
         if (!q) return true;
         const inst = getInstitution(c.institution_id)?.name ?? "";
-        return [c.id, c.category, c.description || "", inst].some((s) => s.toLowerCase().includes(q));
+        return [c.id, c.tracking_id || "", c.category, c.channel || "", c.description || "", inst].some((s) => s.toLowerCase().includes(q));
       })
       .sort((a, b) => b.date_received.localeCompare(a.date_received));
-  }, [visible, query, filter, getInstitution]);
+  }, [visible, query, filter, channelFilter, getInstitution]);
 
   const scope = role === "Admin" ? "All bureaus" : role === "RB Officer" ? "RB cases only" : "PGRC cases only";
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-2">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-blue-950">Grievance Command Dashboard</h1>
           <p className="text-sm text-slate-500">
             Unified view across RB and PGRC · <span className="font-medium text-slate-700">{scope}</span>
             {" · "}Demo date: <span className="font-medium text-slate-700">{fmtDate(DEMO_TODAY)}</span>
           </p>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <LinkButton href="/walk-in" variant="outline" size="sm" className="border-blue-900 text-blue-900 hover:bg-blue-50">
+            + Walk-In Docket
+          </LinkButton>
+          <LinkButton href="/new" size="sm" className="bg-blue-900 hover:bg-blue-800 text-white">
+            + File Grievance
+          </LinkButton>
         </div>
       </div>
 
@@ -319,9 +330,25 @@ export default function DashboardPage() {
                 {s}
               </Button>
             ))}
+
+            <select
+              aria-label="Filter complaints by intake channel"
+              value={channelFilter}
+              onChange={(e) => setChannelFilter(e.target.value as any)}
+              className="h-8 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-700 shadow-2xs focus:outline-none focus:ring-1 focus:ring-blue-900"
+            >
+              <option value="All">All Channels</option>
+              <option value="web">Web Portal</option>
+              <option value="mobile">Mobile App</option>
+              <option value="email">Email</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="helpline">Helpline</option>
+              <option value="walk-in">Walk-in</option>
+            </select>
+
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="w-48 pl-8" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ID, channel, text…" className="w-48 pl-8" />
             </div>
           </div>
         </CardHeader>
@@ -329,7 +356,8 @@ export default function DashboardPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
-                <TableHead className="pl-6 whitespace-nowrap">ID</TableHead>
+                <TableHead className="pl-6 whitespace-nowrap">Docket ID</TableHead>
+                <TableHead className="whitespace-nowrap">Channel</TableHead>
                 <TableHead className="whitespace-nowrap">Institution</TableHead>
                 <TableHead className="whitespace-nowrap">Bureau</TableHead>
                 <TableHead className="whitespace-nowrap">Officer</TableHead>
@@ -347,7 +375,15 @@ export default function DashboardPage() {
                 return (
                   <TableRow key={c.id} className={c.is_overlap_flagged ? "bg-red-50/40" : ""}>
                     <TableCell className="pl-6 font-semibold whitespace-nowrap">
-                      <Link href={`/complaint/${c.id}`} className="text-blue-800 hover:underline">{c.id}</Link>
+                      <div>
+                        <Link href={`/complaint/${c.id}`} className="text-blue-800 hover:underline">{c.id}</Link>
+                        {c.tracking_id && (
+                          <div className="text-[10px] font-mono text-slate-400">{c.tracking_id}</div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <ChannelBadge channel={c.channel} />
                     </TableCell>
                     <TableCell className="max-w-[180px]">
                       <Link href={`/institution/${c.institution_id}`} className="text-xs text-blue-700 hover:underline line-clamp-2">
@@ -376,7 +412,7 @@ export default function DashboardPage() {
               })}
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-slate-500">No complaints match.</TableCell>
+                  <TableCell colSpan={10} className="py-8 text-center text-slate-500">No complaints match.</TableCell>
                 </TableRow>
               )}
             </TableBody>

@@ -7,11 +7,13 @@ import {
   Bell,
   Building2,
   FileBarChart2,
+  FilePenLine,
   FilePlus,
   Landmark,
   LayoutDashboard,
   LogOut,
   RefreshCw,
+  Search,
   User,
   UserCog,
 } from "lucide-react";
@@ -114,7 +116,9 @@ export function Header() {
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/institutions", label: "Institutions", icon: Building2 },
     { href: "/reports", label: "Reports", icon: FileBarChart2 },
-    { href: "/new", label: "New Case", icon: FilePlus },
+    { href: "/new", label: "File Grievance", icon: FilePlus },
+    { href: "/walk-in", label: "Walk-In Entry", icon: FilePenLine },
+    { href: "/track", label: "Track Status", icon: Search },
   ];
 
   return (
@@ -174,13 +178,16 @@ export function Header() {
                 <>
                   <UserCog className="hidden h-4 w-4 text-blue-200 sm:block" />
                   <Select value={role} onValueChange={(v) => { if (v) setRole(v as Role); }}>
-                    <SelectTrigger className="w-[145px] border-white/25 bg-white/10 text-white focus:ring-white/40 text-xs">
+                    <SelectTrigger className="w-[160px] border-white/25 bg-white/10 text-white focus:ring-white/40 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent align="end">
                       <SelectItem value="Admin">Admin</SelectItem>
                       <SelectItem value="RB Officer">RB Officer</SelectItem>
                       <SelectItem value="PGRC Officer">PGRC Officer</SelectItem>
+                      <SelectItem value="Chairperson">Chairperson</SelectItem>
+                      <SelectItem value="Institute">Institute</SelectItem>
+                      <SelectItem value="Complainant">Complainant</SelectItem>
                     </SelectContent>
                   </Select>
                 </>
