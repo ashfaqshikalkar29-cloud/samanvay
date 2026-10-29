@@ -82,12 +82,23 @@ export interface Complaint {
   is_overlap_flagged: boolean;
   overlap_links: OverlapLink[];
   next_action: string;
-  consolidated_under?: string;       // Phase 4: lead case id
+  consolidated_under?: string;       // Lead case id if merged
   is_anonymous?: boolean;
   dynamic_fields?: Record<string, any>;
   evidence?: EvidenceFile[];
   complainant_phone_last4?: string;
   anonymous_access_key?: string;
+  // Phase 2 Intelligence fields
+  embedding?: number[];
+  master_id?: string;
+  is_merged?: boolean;
+  merged_into_id?: string;
+  merged_complaint_ids?: string[];
+  lead_bureau?: Bureau;
+  routing_confidence?: number;
+  routing_rationale?: string;
+  is_triage?: boolean;
+  decision_type?: string;
 }
 
 export interface AuditEntry {

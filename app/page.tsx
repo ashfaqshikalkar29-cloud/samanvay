@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeftRight, ArrowRight, CheckCircle2, Clock, FileStack,
-  Hourglass, Loader2, Search, ShieldAlert, SlidersHorizontal,
+  Hourglass, Loader2, Search, ShieldAlert, SlidersHorizontal, Network,
+  GitMerge, Layers, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -52,12 +53,13 @@ export default function DashboardPage() {
     overlapThreshold,
     setOverlapThreshold,
     getInstitution,
+    watchlistedInstitutes,
     loading,
     error,
     retryLoad,
   } = useApp();
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"All" | Status>("All");
+  const [filter, setFilter] = useState<"All" | Status | "Triage">("All");
   const [channelFilter, setChannelFilter] = useState<"All" | Channel>("All");
   const [openOnly, setOpenOnly] = useState(true);
   const [showSlider, setShowSlider] = useState(false);
@@ -68,6 +70,7 @@ export default function DashboardPage() {
       pending: visible.filter((c) => c.status === "Pending").length,
       inProcess: visible.filter((c) => c.status === "In-Process").length,
       disposed: visible.filter((c) => c.status === "Disposed").length,
+      triage: visible.filter((c) => c.is_triage).length,
       openAlerts: overlapAlerts.filter((a) => {
         const [idA, idB] = a.complaint_ids;
         const visIds = new Set(visible.map((c) => c.id));
@@ -100,7 +103,11 @@ export default function DashboardPage() {
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return visible
-      .filter((c) => filter === "All" || c.status === filter)
+      .filter((c) => {
+        if (filter === "All") return true;
+        if (filter === "Triage") return c.is_triage === true;
+        return c.status === filter;
+      })
       .filter((c) => channelFilter === "All" || c.channel === channelFilter)
       .filter((c) => {
         if (!q) return true;
@@ -124,6 +131,12 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <LinkButton href="/clusters" variant="outline" size="sm" className="border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center">
+            <Network className="mr-1.5 h-3.5 w-3.5 text-blue-700" /> Clusters
+          </LinkButton>
+          <LinkButton href="/watchlist" variant="outline" size="sm" className="border-red-200 text-red-700 hover:bg-red-50 flex items-center">
+            <ShieldAlert className="mr-1.5 h-3.5 w-3.5 text-red-600" /> Watchlist
+          </LinkButton>
           <LinkButton href="/walk-in" variant="outline" size="sm" className="border-blue-900 text-blue-900 hover:bg-blue-50">
             + Walk-In Docket
           </LinkButton>
@@ -319,15 +332,28 @@ export default function DashboardPage() {
             <CardDescription>{rows.length} of {visible.length} shown</CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {(["All", "Pending", "In-Process", "Disposed"] as const).map((s) => (
+            {(["All", "Pending", "In-Process", "Disposed", "Triage"] as const).map((s) => (
               <Button
                 key={s}
                 size="sm"
                 variant={filter === s ? "default" : "outline"}
-                className={filter === s ? "bg-blue-900 hover:bg-blue-800" : ""}
-                onClick={() => setFilter(s)}
+                className={
+                  filter === s
+                    ? s === "Triage"
+                      ? "bg-amber-700 hover:bg-amber-600 text-white"
+                      : "bg-blue-900 hover:bg-blue-800"
+                    : s === "Triage"
+                    ? "border-amber-300 text-amber-800 hover:bg-amber-50"
+                    : ""
+                }
+                onClick={() => setFilter(s as any)}
               >
                 {s}
+                {s === "Triage" && stats.triage > 0 && (
+                  <span className="ml-1 rounded-full bg-amber-500 px-1.5 py-0.2 text-[10px] font-bold text-white">
+                    {stats.triage}
+                  </span>
+                )}
               </Button>
             ))}
 
@@ -365,20 +391,36 @@ export default function DashboardPage() {
                 <TableHead className="whitespace-nowrap">Last action</TableHead>
                 <TableHead className="whitespace-nowrap">Next action</TableHead>
                 <TableHead className="whitespace-nowrap">SLA</TableHead>
-                <TableHead className="pr-6 text-right whitespace-nowrap">Overlap</TableHead>
+                <TableHead className="pr-6 text-right whitespace-nowrap">Overlap / Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((c) => {
                 const sla = getSla(c);
                 const inst = getInstitution(c.institution_id);
+                const isWatchlisted = (watchlistedInstitutes || []).some((w) => w.institution_id === c.institution_id);
                 return (
-                  <TableRow key={c.id} className={c.is_overlap_flagged ? "bg-red-50/40" : ""}>
+                  <TableRow key={c.id} className={c.is_overlap_flagged ? "bg-red-50/40" : c.is_merged ? "bg-purple-50/20" : ""}>
                     <TableCell className="pl-6 font-semibold whitespace-nowrap">
                       <div>
-                        <Link href={`/complaint/${c.id}`} className="text-blue-800 hover:underline">{c.id}</Link>
+                        <div className="flex items-center gap-1.5">
+                          <Link href={`/complaint/${c.id}`} className="text-blue-800 hover:underline">{c.id}</Link>
+                          {c.is_merged && (
+                            <span className="rounded bg-purple-100 px-1 py-0.2 text-[9px] font-bold text-purple-800" title={`Merged into ${c.master_id}`}>
+                              MERGED
+                            </span>
+                          )}
+                          {c.is_triage && (
+                            <span className="rounded bg-amber-100 px-1 py-0.2 text-[9px] font-bold text-amber-800" title="Low routing confidence — triage required">
+                              TRIAGE
+                            </span>
+                          )}
+                        </div>
                         {c.tracking_id && (
                           <div className="text-[10px] font-mono text-slate-400">{c.tracking_id}</div>
+                        )}
+                        {c.is_merged && c.master_id && (
+                          <div className="text-[10px] text-purple-600 font-normal">Master: {c.master_id}</div>
                         )}
                       </div>
                     </TableCell>
@@ -386,9 +428,19 @@ export default function DashboardPage() {
                       <ChannelBadge channel={c.channel} />
                     </TableCell>
                     <TableCell className="max-w-[180px]">
-                      <Link href={`/institution/${c.institution_id}`} className="text-xs text-blue-700 hover:underline line-clamp-2">
-                        {inst?.name}
-                      </Link>
+                      <div>
+                        <Link href={`/institution/${c.institution_id}`} className="text-xs text-blue-700 hover:underline line-clamp-2">
+                          {inst?.name}
+                        </Link>
+                        {isWatchlisted && (
+                          <Link
+                            href="/watchlist"
+                            className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 hover:bg-red-200 transition-colors"
+                          >
+                            <AlertTriangle className="h-2.5 w-2.5 text-red-600" /> Watchlist
+                          </Link>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell><BureauBadge bureau={c.bureau} /></TableCell>
                     <TableCell className="whitespace-nowrap text-xs">{c.assigned_officer}</TableCell>
@@ -399,7 +451,11 @@ export default function DashboardPage() {
                     </TableCell>
                     <TableCell><SlaBadge state={sla.state} daysLeft={sla.daysLeft} /></TableCell>
                     <TableCell className="pr-6 text-right">
-                      {c.is_overlap_flagged ? (
+                      {c.is_merged ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-800">
+                          <GitMerge className="h-3 w-3" /> Consolidated
+                        </span>
+                      ) : c.is_overlap_flagged ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
                           <AlertTriangle className="h-3 w-3" /> Flagged
                         </span>

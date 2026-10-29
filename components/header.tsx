@@ -11,9 +11,12 @@ import {
   FilePlus,
   Landmark,
   LayoutDashboard,
+  ListTodo,
   LogOut,
+  Network,
   RefreshCw,
   Search,
+  ShieldAlert,
   User,
   UserCog,
 } from "lucide-react";
@@ -22,7 +25,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useApp } from "@/lib/store";
 import { getSla } from "@/lib/sla";
 import { DEMO_TODAY, type Role } from "@/lib/mock";
+import { isTaskOverdue } from "@/lib/tasks";
 import { fmtDate } from "@/components/ui-bits";
+import { TasksDrawer } from "@/components/tasks-drawer";
 
 function BellPopover() {
   const { visible, sendReminder } = useApp();
@@ -104,20 +109,37 @@ function BellPopover() {
 }
 
 export function Header() {
-  const { mode, role, setRole, actor, resetDemo, signOut, user, profile } = useApp();
+  const { mode, role, setRole, actor, resetDemo, signOut, user, profile, tasks } = useApp();
   const pathname = usePathname();
   const [resetMenuOpen, setResetMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [tasksDrawerOpen, setTasksDrawerOpen] = useState(false);
 
   // If on /login page, keep header minimal
   const isLoginPage = pathname === "/login";
 
+  const isStaff = role === "Admin" || role === "RB Officer" || role === "PGRC Officer" || role === "Chairperson";
+  const myBureau = role === "PGRC Officer" ? "PGRC" : "RB";
+
+  const pendingTasks = (tasks || []).filter(
+    (t) => t.status !== "completed" && (role === "Admin" || role === "Chairperson" || t.to_bureau === myBureau)
+  );
+  const overdueTasks = (tasks || []).filter(
+    (t) => isTaskOverdue(t, DEMO_TODAY) && (role === "Admin" || role === "Chairperson" || t.to_bureau === myBureau)
+  );
+
   const navLinks = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
+    ...(isStaff
+      ? [
+          { href: "/clusters", label: "Clusters", icon: Network },
+          { href: "/watchlist", label: "Watchlist", icon: ShieldAlert },
+        ]
+      : []),
     { href: "/institutions", label: "Institutions", icon: Building2 },
     { href: "/reports", label: "Reports", icon: FileBarChart2 },
     { href: "/new", label: "File Grievance", icon: FilePlus },
-    { href: "/walk-in", label: "Walk-In Entry", icon: FilePenLine },
+    ...(isStaff ? [{ href: "/walk-in", label: "Walk-In Entry", icon: FilePenLine }] : []),
     { href: "/track", label: "Track Status", icon: Search },
   ];
 
@@ -151,7 +173,7 @@ export function Header() {
                 <Link
                   key={href}
                   href={href}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs xl:text-sm font-medium transition-colors ${
                     pathname === href
                       ? "bg-white/15 text-white"
                       : "text-blue-200 hover:bg-white/10 hover:text-white"
@@ -166,6 +188,29 @@ export function Header() {
 
           {!isLoginPage && (
             <div className="flex items-center gap-2">
+              {/* Inter-bureau Tasks button with live badge */}
+              {isStaff && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Inter-bureau Tasks"
+                  className="relative text-blue-200 hover:bg-white/10 hover:text-white flex items-center gap-1.5 px-2.5 py-1 text-xs"
+                  onClick={() => setTasksDrawerOpen(true)}
+                >
+                  <ListTodo className="h-4 w-4" />
+                  <span className="hidden sm:inline">Tasks</span>
+                  {pendingTasks.length > 0 && (
+                    <span
+                      className={`flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white ${
+                        overdueTasks.length > 0 ? "bg-red-500 animate-pulse" : "bg-blue-600"
+                      }`}
+                    >
+                      {pendingTasks.length}
+                    </span>
+                  )}
+                </Button>
+              )}
+
               <BellPopover />
 
               <div className="hidden text-right text-xs leading-tight text-blue-200 md:block">
@@ -278,6 +323,9 @@ export function Header() {
           </div>
         )}
       </div>
+
+      {/* Inter-bureau task management drawer */}
+      <TasksDrawer isOpen={tasksDrawerOpen} onClose={() => setTasksDrawerOpen(false)} />
     </header>
   );
 }

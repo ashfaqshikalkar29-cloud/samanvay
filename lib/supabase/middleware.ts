@@ -40,12 +40,7 @@ export async function updateSession(request: NextRequest) {
   const isPublicRoute =
     request.nextUrl.pathname.startsWith("/new") ||
     request.nextUrl.pathname.startsWith("/track") ||
-    request.nextUrl.pathname.startsWith("/api/intake") ||
-    request.nextUrl.pathname.startsWith("/api/otp") ||
-    request.nextUrl.pathname.startsWith("/api/institutes") ||
-    request.nextUrl.pathname.startsWith("/api/track") ||
-    request.nextUrl.pathname.startsWith("/api/complaints/anonymous-reveal") ||
-    request.nextUrl.pathname.startsWith("/api/evidence");
+    request.nextUrl.pathname.startsWith("/api/");
 
   if (!user && !isLoginPage && !isPublicRoute) {
     if (request.nextUrl.pathname.startsWith("/api/")) {

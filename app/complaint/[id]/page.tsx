@@ -7,6 +7,7 @@ import {
   ArrowLeft, ArrowRight, Building2, CheckCircle2, Clock, GitMerge,
   History, Lock, Send, User, ShieldAlert, Eye, EyeOff, Paperclip,
   FileText, FileAudio, FileVideo, Image as ImageIcon, Download, AlertTriangle,
+  Layers, ListTodo, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +20,9 @@ import { useApp } from "@/lib/store";
 import { getSla } from "@/lib/sla";
 import { ACTOR, OFFICERS, type Bureau, type Complaint, type Status } from "@/lib/mock";
 import { CATEGORY_SCHEMAS } from "@/lib/intake-schemas";
+import { ConflictBanner } from "@/components/conflict-banner";
+import { UnifiedTimeline } from "@/components/timeline";
+import { TasksDrawer } from "@/components/tasks-drawer";
 
 // ── Adjudication dialog ────────────────────────────────────────────────────
 function AdjudicateDialog({
@@ -300,12 +304,24 @@ function ActionPanel({ c, readOnly }: { c: Complaint; readOnly: boolean }) {
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function ComplaintPage() {
   const { id } = useParams<{ id: string }>();
-  const { complaints, overlapAlerts, audit, role, getInstitution, sendReminder, escalateCase } = useApp();
+  const {
+    complaints,
+    overlapAlerts,
+    audit,
+    role,
+    getInstitution,
+    sendReminder,
+    escalateCase,
+    watchlistedInstitutes,
+    unmergeComplaint,
+  } = useApp();
   const [adjState, setAdjState] = useState<{
     alertId: string; otherCaseId: string; decision: "Confirmed Duplicate" | "Dismissed (Distinct)";
   } | null>(null);
   const [showRevealModal, setShowRevealModal] = useState(false);
   const [revealedIdentity, setRevealedIdentity] = useState<any>(null);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [isUnmerging, setIsUnmerging] = useState(false);
 
   const c = complaints.find((x) => x.id === id);
   if (!c) {
@@ -331,6 +347,9 @@ export default function ComplaintPage() {
   const readOnly =
     (role === "RB Officer" && c.bureau !== "RB") || (role === "PGRC Officer" && c.bureau !== "PGRC");
 
+  const isStaff = role === "Admin" || role === "RB Officer" || role === "PGRC Officer" || role === "Chairperson";
+  const isWatchlisted = (watchlistedInstitutes || []).some((w) => w.institution_id === c.institution_id);
+
   return (
     <div className="space-y-5">
       {adjState && (
@@ -350,9 +369,24 @@ export default function ComplaintPage() {
         />
       )}
 
-      <LinkButton href="/" variant="ghost" size="sm" className="-ml-2 text-slate-600 flex items-center">
-        <ArrowLeft className="mr-1 h-4 w-4" /> Dashboard
-      </LinkButton>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <LinkButton href="/" variant="ghost" size="sm" className="-ml-2 text-slate-600 flex items-center">
+          <ArrowLeft className="mr-1 h-4 w-4" /> Dashboard
+        </LinkButton>
+
+        {isStaff && (
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 border-blue-900 text-xs font-semibold text-blue-950 hover:bg-blue-50"
+              onClick={() => setTasksOpen(true)}
+            >
+              <ListTodo className="mr-1.5 h-3.5 w-3.5 text-blue-700" /> Inter-Bureau Tasks
+            </Button>
+          </div>
+        )}
+      </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold text-blue-950">{c.id}</h1>
@@ -364,14 +398,128 @@ export default function ComplaintPage() {
         <BureauBadge bureau={c.bureau} />
         <StatusBadge status={c.status} />
         <ChannelBadge channel={c.channel} />
+
         {c.is_anonymous && (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-300 bg-purple-50 px-2.5 py-0.5 text-xs font-semibold text-purple-900">
             <ShieldAlert className="h-3.5 w-3.5 text-purple-700" /> Confidential
           </span>
         )}
+
+        {isWatchlisted && (
+          <Link
+            href="/watchlist"
+            className="inline-flex items-center gap-1.5 rounded-full border border-red-300 bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-800 hover:bg-red-200 transition-colors"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 text-red-600" /> Watchlisted Institute
+          </Link>
+        )}
+
+        {c.is_triage ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800"
+            title={c.routing_rationale || "Low routing confidence — awaiting officer review"}
+          >
+            <AlertTriangle className="h-3 w-3 text-amber-600" /> Triage Queue ({Math.round((c.routing_confidence || 0) * 100)}%)
+          </span>
+        ) : c.routing_confidence !== undefined ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600"
+            title={c.routing_rationale || "Auto-routed by AICTE classifier"}
+          >
+            <Sparkles className="h-3 w-3 text-blue-600" /> Auto-routed ({Math.round(c.routing_confidence * 100)}%)
+          </span>
+        ) : null}
+
+        {c.is_merged && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-purple-300 bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-900">
+            <GitMerge className="h-3 w-3 text-purple-700" /> Merged Docket
+          </span>
+        )}
+
+        {c.merged_complaint_ids && c.merged_complaint_ids.length > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-900">
+            <Layers className="h-3 w-3 text-blue-700" /> Master Docket ({c.merged_complaint_ids.length} children)
+          </span>
+        )}
+
         <SlaBadge state={sla.state} daysLeft={sla.daysLeft} />
         <span className="text-sm text-slate-500">{c.category}</span>
       </div>
+
+      {/* Cross-bureau contradictory directive conflict banner */}
+      <ConflictBanner complaintId={c.id} institutionId={c.institution_id} />
+
+      {/* Merged Child Docket notification */}
+      {c.is_merged && c.master_id && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-purple-300 bg-gradient-to-r from-purple-50 to-indigo-50 p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700 mt-0.5">
+              <GitMerge className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-purple-950">
+                Consolidated Case · Consolidated into Master Case{" "}
+                <Link href={`/complaint/${c.master_id}`} className="underline font-bold text-blue-900 hover:text-blue-700">
+                  {c.master_id}
+                </Link>
+              </p>
+              <p className="text-xs text-purple-800 mt-0.5">
+                Lead Bureau: <span className="font-semibold">{c.lead_bureau || c.bureau}</span>. Status and substantive directions automatically mirror the master docket. Complainant contact and evidence remain distinct.
+              </p>
+            </div>
+          </div>
+          {!readOnly && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isUnmerging}
+              className="h-8 border-purple-300 text-xs font-medium text-purple-900 hover:bg-purple-100 shrink-0"
+              onClick={async () => {
+                if (!confirm(`Unmerge complaint ${c.id} from master case ${c.master_id}? It will resume independent proceedings.`)) return;
+                setIsUnmerging(true);
+                try {
+                  await unmergeComplaint(c.id);
+                } finally {
+                  setIsUnmerging(false);
+                }
+              }}
+            >
+              {isUnmerging ? "Unmerging..." : "Unmerge Docket"}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Master Docket banner */}
+      {c.merged_complaint_ids && c.merged_complaint_ids.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-300 bg-gradient-to-r from-blue-50 to-slate-50 p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700 mt-0.5">
+              <Layers className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-blue-950">
+                Lead Master Docket · Consolidating {c.merged_complaint_ids.length} Related Grievance(s)
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1.5 items-center text-xs text-slate-700">
+                <span className="font-medium text-slate-600">Child Dockets:</span>
+                {c.merged_complaint_ids.map((childId) => (
+                  <Link
+                    key={childId}
+                    href={`/complaint/${childId}`}
+                    className="rounded bg-blue-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-blue-900 hover:underline"
+                  >
+                    {childId}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
+          <span className="rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-900 shrink-0">
+            Lead Bureau: {c.lead_bureau || c.bureau}
+          </span>
+        </div>
+      )}
 
       {/* Case Snapshot strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -707,6 +855,8 @@ export default function ComplaintPage() {
               </CardContent>
             </Card>
           )}
+          {/* Unified Cross-Bureau Timeline */}
+          <UnifiedTimeline complaintId={c.id} readOnly={readOnly} />
         </div>
 
         <div className="space-y-5">
@@ -738,6 +888,13 @@ export default function ComplaintPage() {
           </Card>
         </div>
       </div>
+
+      {/* Case-specific inter-bureau task drawer */}
+      <TasksDrawer
+        isOpen={tasksOpen}
+        onClose={() => setTasksOpen(false)}
+        presetComplaintId={c.id}
+      />
     </div>
   );
 }

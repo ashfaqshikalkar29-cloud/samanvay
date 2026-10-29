@@ -27,6 +27,11 @@ import { getSupabaseBrowserClient } from "./supabase/client";
 import { mapDbRoleToAppRole, type DbProfile } from "./supabase/types";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, Lock, LogOut } from "lucide-react";
+import { CaseEvent } from "./timeline";
+import { InterBureauTask } from "./tasks";
+import { ConflictAlert } from "./conflicts";
+import { ComplaintCluster, generateComplaintClusters } from "./clustering";
+import { WatchlistedInstitute, computeWatchlist } from "./watchlist";
 
 const ENGINE = "Samanvay Overlap Engine";
 
@@ -62,6 +67,19 @@ interface Store {
   resetDemo: () => void;
   sendReminder: (complaintId: string) => void;
   escalateCase: (complaintId: string) => void;
+
+  // Phase 2 Intelligence & Coordination
+  tasks: InterBureauTask[];
+  conflicts: ConflictAlert[];
+  clusters: ComplaintCluster[];
+  watchlistedInstitutes: WatchlistedInstitute[];
+  createTask: (task: Omit<InterBureauTask, "id" | "created_at">) => Promise<void>;
+  updateTaskStatus: (taskId: string, status: InterBureauTask["status"]) => Promise<void>;
+  resolveConflict: (conflictId: string, notes: string) => Promise<void>;
+  mergeComplaints: (masterId: string, childIds: string[], leadBureau: Bureau) => Promise<boolean>;
+  unmergeComplaint: (childId: string) => Promise<boolean>;
+  getEvents: (complaintId: string) => Promise<CaseEvent[]>;
+  addEvent: (event: CaseEvent) => Promise<void>;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -85,6 +103,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [overlapAlerts, setOverlapAlerts] = useState<OverlapAlert[]>([]);
   const [overlapThreshold, setOverlapThresholdState] = useState(OVERLAP_CONFIG.threshold);
+  const [tasks, setTasks] = useState<InterBureauTask[]>([]);
+  const [conflicts, setConflicts] = useState<ConflictAlert[]>([]);
+  const [clusters, setClusters] = useState<ComplaintCluster[]>([]);
 
   const lastSyncSignatureRef = useRef<string>("");
 
@@ -115,6 +136,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return complaints;
   }, [role, complaints]);
 
+  // Derived: Systemic Clusters
+  useEffect(() => {
+    let active = true;
+    if (complaints.length > 0) {
+      generateComplaintClusters(complaints, (iid) => institutions.find((i) => i.id === iid)).then(
+        (res) => {
+          if (active) setClusters(res);
+        }
+      );
+    }
+    return () => {
+      active = false;
+    };
+  }, [complaints, institutions]);
+
+  // Derived: Repeat-Offender Watchlist
+  const watchlistedInstitutes = useMemo(() => {
+    return computeWatchlist(complaints, institutions);
+  }, [complaints, institutions]);
+
   // Actor display string
   const actor = useMemo(() => {
     if (mode === "supabase" && profile) {
@@ -138,10 +179,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       setError(null);
       const data = await repo.loadAll();
+      const taskList = await repo.getTasks();
+      const conflictList = await repo.getConflicts();
       setInstitutions(data.institutions);
       setRawComplaints(data.complaints);
       setAudit(data.audit);
       setOverlapAlerts(data.alerts);
+      setTasks(taskList);
+      setConflicts(conflictList);
     } catch (err: any) {
       console.error("Error loading data from repository:", err);
       setError(err.message || "Failed to load data. Please retry.");
@@ -550,6 +595,90 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [mode, repo, loadData]);
 
+  const createTask = useCallback(
+    async (taskData: Omit<InterBureauTask, "id" | "created_at">) => {
+      const newTask: InterBureauTask = {
+        ...taskData,
+        id: `task-${Date.now()}`,
+        created_at: new Date().toISOString(),
+      };
+      setTasks((prev) => [newTask, ...prev]);
+      await repo.createTask(newTask);
+    },
+    [repo]
+  );
+
+  const updateTaskStatus = useCallback(
+    async (taskId: string, status: InterBureauTask["status"]) => {
+      const officer = profile?.full_name || ACTOR[role];
+      const now = new Date().toISOString();
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId
+            ? { ...t, status, completed_at: status === "completed" ? now : undefined, completed_by: status === "completed" ? officer : undefined }
+            : t
+        )
+      );
+      await repo.updateTaskStatus(taskId, status, officer);
+    },
+    [profile, role, repo]
+  );
+
+  const resolveConflict = useCallback(
+    async (conflictId: string, notes: string) => {
+      const resolvedBy = profile?.full_name || ACTOR[role];
+      const now = new Date().toISOString();
+      setConflicts((prev) =>
+        prev.map((c) =>
+          c.id === conflictId
+            ? { ...c, status: "Resolved", resolution_notes: notes, resolved_by: resolvedBy, resolved_at: now }
+            : c
+        )
+      );
+      await repo.resolveConflict(conflictId, { notes, resolved_by: resolvedBy });
+      await loadData();
+    },
+    [profile, role, repo, loadData]
+  );
+
+  const mergeComplaints = useCallback(
+    async (masterId: string, childIds: string[], leadBureau: Bureau) => {
+      const officer = profile?.full_name || ACTOR[role];
+      const ok = await repo.mergeComplaints(masterId, childIds, leadBureau, officer);
+      if (ok) {
+        await loadData();
+      }
+      return ok;
+    },
+    [profile, role, repo, loadData]
+  );
+
+  const unmergeComplaint = useCallback(
+    async (childId: string) => {
+      const officer = profile?.full_name || ACTOR[role];
+      const ok = await repo.unmergeComplaint(childId, officer);
+      if (ok) {
+        await loadData();
+      }
+      return ok;
+    },
+    [profile, role, repo, loadData]
+  );
+
+  const getEvents = useCallback(
+    async (complaintId: string) => {
+      return repo.getEvents(complaintId);
+    },
+    [repo]
+  );
+
+  const addEvent = useCallback(
+    async (event: CaseEvent) => {
+      await repo.addEvent(event);
+    },
+    [repo]
+  );
+
   const signOut = useCallback(async () => {
     if (mode === "supabase") {
       const supabase = getSupabaseBrowserClient();
@@ -588,6 +717,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     resetDemo,
     sendReminder,
     escalateCase,
+    tasks,
+    conflicts,
+    clusters,
+    watchlistedInstitutes,
+    createTask,
+    updateTaskStatus,
+    resolveConflict,
+    mergeComplaints,
+    unmergeComplaint,
+    getEvents,
+    addEvent,
   };
 
   // Screen when account has no role assigned

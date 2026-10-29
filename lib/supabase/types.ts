@@ -37,6 +37,16 @@ export type DbComplaint = {
   evidence?: any;
   complainant_phone_last4?: string | null;
   anonymous_access_key?: string | null;
+  embedding?: number[] | null;
+  master_id?: string | null;
+  is_merged?: boolean | null;
+  merged_into_id?: string | null;
+  merged_complaint_ids?: string[] | null;
+  lead_bureau?: Bureau | null;
+  routing_confidence?: number | null;
+  routing_rationale?: string | null;
+  is_triage?: boolean | null;
+  decision_type?: string | null;
   updated_at?: string;
 };
 
@@ -61,6 +71,62 @@ export type DbOverlapAlert = {
   adjudicated_by: string | null;
   adjudicated_at: string | null;
   note: string | null;
+};
+
+export type DbCaseEvent = {
+  id?: string;
+  complaint_id: string;
+  bureau: string;
+  event_type: string;
+  actor: string;
+  title: string;
+  description: string | null;
+  is_internal: boolean;
+  metadata?: any;
+  created_at?: string;
+};
+
+export type DbInterBureauTask = {
+  id: string;
+  complaint_id: string;
+  from_bureau: Bureau;
+  to_bureau: Bureau;
+  created_by: string;
+  assigned_to?: string | null;
+  title: string;
+  description?: string | null;
+  deadline: string;
+  priority: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type DbConflictAlert = {
+  id: string;
+  institution_id: string;
+  complaint_a_id: string;
+  complaint_b_id: string;
+  decision_a: string;
+  decision_b: string;
+  bureau_a: string;
+  bureau_b: string;
+  detected_at?: string;
+  status: string;
+  resolution_note?: string | null;
+  resolved_by?: string | null;
+  resolved_at?: string | null;
+};
+
+export type DbRoutingFeedback = {
+  id?: string;
+  complaint_id: string;
+  predicted_bureau: string;
+  assigned_bureau: string;
+  confidence?: number | null;
+  overridden_by: string;
+  reason?: string | null;
+  created_at?: string;
 };
 
 export type Database = {
@@ -94,6 +160,30 @@ export type Database = {
         Row: DbOverlapAlert;
         Insert: DbOverlapAlert;
         Update: Partial<DbOverlapAlert>;
+        Relationships: [];
+      };
+      case_events: {
+        Row: DbCaseEvent;
+        Insert: DbCaseEvent;
+        Update: Partial<DbCaseEvent>;
+        Relationships: [];
+      };
+      inter_bureau_tasks: {
+        Row: DbInterBureauTask;
+        Insert: DbInterBureauTask;
+        Update: Partial<DbInterBureauTask>;
+        Relationships: [];
+      };
+      conflict_alerts: {
+        Row: DbConflictAlert;
+        Insert: DbConflictAlert;
+        Update: Partial<DbConflictAlert>;
+        Relationships: [];
+      };
+      routing_feedback: {
+        Row: DbRoutingFeedback;
+        Insert: DbRoutingFeedback;
+        Update: Partial<DbRoutingFeedback>;
         Relationships: [];
       };
     };
@@ -173,6 +263,16 @@ export function mapDbComplaintToApp(row: DbComplaint): Complaint {
     dynamic_fields: row.dynamic_fields ?? {},
     evidence: Array.isArray(row.evidence) ? row.evidence : [],
     complainant_phone_last4: row.complainant_phone_last4 ?? undefined,
+    embedding: row.embedding ?? undefined,
+    master_id: row.master_id ?? undefined,
+    is_merged: Boolean(row.is_merged),
+    merged_into_id: row.merged_into_id ?? undefined,
+    merged_complaint_ids: row.merged_complaint_ids ?? undefined,
+    lead_bureau: row.lead_bureau ?? undefined,
+    routing_confidence: row.routing_confidence ?? undefined,
+    routing_rationale: row.routing_rationale ?? undefined,
+    is_triage: Boolean(row.is_triage),
+    decision_type: row.decision_type ?? undefined,
   };
 }
 
@@ -195,6 +295,16 @@ export function mapAppComplaintToDb(c: Complaint, dueDate?: string | null): DbCo
     dynamic_fields: c.dynamic_fields ?? {},
     evidence: c.evidence ?? [],
     complainant_phone_last4: c.complainant_phone_last4 ?? null,
+    embedding: c.embedding ?? null,
+    master_id: c.master_id ?? null,
+    is_merged: c.is_merged ?? false,
+    merged_into_id: c.merged_into_id ?? null,
+    merged_complaint_ids: c.merged_complaint_ids ?? null,
+    lead_bureau: c.lead_bureau ?? null,
+    routing_confidence: c.routing_confidence ?? null,
+    routing_rationale: c.routing_rationale ?? null,
+    is_triage: c.is_triage ?? false,
+    decision_type: c.decision_type ?? null,
   };
 }
 

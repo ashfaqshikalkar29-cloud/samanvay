@@ -4,6 +4,8 @@ import { CATEGORY_SCHEMAS, validateDynamicFields } from "@/lib/intake-schemas";
 import { encryptIdentity, generateAccessKey } from "@/lib/crypto-anonymous";
 import { DEMO_TODAY, OFFICERS, type Bureau, type Channel, type Complaint } from "@/lib/mock";
 import { getRepo } from "@/lib/data/repo";
+import { defaultClassifier } from "@/lib/classifier";
+import { defaultEmbeddingService, findTopKSimilar } from "@/lib/embeddings";
 
 const VALID_CHANNELS: Channel[] = ["web", "mobile", "email", "whatsapp", "helpline", "walk-in"];
 
@@ -99,14 +101,18 @@ export async function POST(req: NextRequest) {
       phoneLast4 = complainant_phone.replace(/\D/g, "").slice(-4);
     }
 
-    // 7. Bureau & Officer assignment
-    const bureau = determineBureau(category);
+    // 7. Bureau Auto-Routing & Classifier (2.4)
+    const classification = defaultClassifier.classify(category, description, dynamic_fields);
+    const bureau = (assigned_officer ? determineBureau(category) : classification.predicted_bureau);
+    const isTriage = assigned_officer ? false : classification.is_triage;
     const officerToAssign =
       assigned_officer ||
-      OFFICERS.find((o) => o.bureau === bureau)?.name ||
-      (bureau === "RB" ? "Dr. A. Kulkarni" : "Ms. R. Iyer");
+      (isTriage ? "Triage Desk" : OFFICERS.find((o) => o.bureau === bureau)?.name || (bureau === "RB" ? "Dr. A. Kulkarni" : "Ms. R. Iyer"));
 
-    // 8. Construct Complaint Record
+    // 8. Generate 384-dimensional Semantic Vector Embedding (2.1)
+    const embedding = await defaultEmbeddingService.embed(description.trim());
+
+    // 9. Construct Complaint Record
     const complaint: Complaint = {
       id: complaintId,
       tracking_id: trackingId,
@@ -120,33 +126,60 @@ export async function POST(req: NextRequest) {
       assigned_officer: officerToAssign,
       is_overlap_flagged: false,
       overlap_links: [],
-      next_action: "Initial scrutiny by bureau officer",
+      next_action: isTriage ? "In Triage Queue: Requires manual bureau assignment" : "Initial scrutiny by bureau officer",
       is_anonymous: Boolean(is_anonymous),
       dynamic_fields,
       evidence,
       complainant_phone_last4: phoneLast4,
       anonymous_access_key: anonymousAccessKey,
+      embedding,
+      routing_confidence: classification.confidence,
+      routing_rationale: classification.rationale,
+      is_triage: isTriage,
     };
 
-    // 9. Persist to data repository
+    // 10. Persist to data repository
     const repo = getRepo();
     await repo.insertComplaint(complaint);
 
-    // 10. Audit trail
+    // 11. Audit trail & Cross-Bureau Event Stream (2.5)
     await repo.addAudit({
       complaint_id: complaintId,
-      action: "Grievance Docketed",
+      action: isTriage ? "Grievance Docketed in Triage" : "Grievance Docketed",
       timestamp: new Date().toISOString(),
       officer: channel === "walk-in" ? officerToAssign : "System Intake Gateway",
-      remarks: `Docketed via ${channel.toUpperCase()} channel. Tracking ID: ${trackingId}.`,
+      remarks: `Docketed via ${channel.toUpperCase()} channel. Auto-Routing: ${Math.round(classification.confidence * 100)}% confidence for ${classification.predicted_bureau}. Tracking ID: ${trackingId}.`,
     });
+
+    await repo.addEvent({
+      id: `evt-${complaintId}-${Date.now()}`,
+      complaint_id: complaintId,
+      bureau: isTriage ? "System" : bureau,
+      event_type: "status_change",
+      actor: "Intake Classifier Gateway",
+      title: isTriage ? "Grievance Placed in Triage Queue" : `Grievance Auto-Routed to ${bureau}`,
+      description: classification.rationale,
+      created_at: new Date().toISOString(),
+    });
+
+    // 12. Check Semantic Similarities across All Bureaus (2.1)
+    const { complaints: allComplaints } = await repo.loadAll();
+    const topSimilar = findTopKSimilar(
+      embedding,
+      description.trim(),
+      allComplaints,
+      5,
+      complaintId
+    );
 
     const origin = req.nextUrl.origin || "http://localhost:2001";
     const publicTrackUrl = `${origin}/track/${trackingId}`;
 
     return NextResponse.json({
       success: true,
-      message: "Grievance registered and docketed successfully.",
+      message: isTriage
+        ? "Grievance registered and placed in triage queue for multi-bureau review."
+        : "Grievance registered and docketed successfully.",
       complaint: {
         id: complaint.id,
         tracking_id: complaint.tracking_id,
@@ -158,8 +191,15 @@ export async function POST(req: NextRequest) {
         date_received: complaint.date_received,
         assigned_officer: complaint.assigned_officer,
         is_anonymous: complaint.is_anonymous,
+        is_triage: complaint.is_triage,
+        routing_confidence: complaint.routing_confidence,
+        routing_rationale: complaint.routing_rationale,
         tracking_url: publicTrackUrl,
         anonymous_access_key: anonymousAccessKey,
+      },
+      semantic_similarity: {
+        top_matches: topSimilar,
+        likely_duplicates_count: topSimilar.filter((m) => m.category === "likely_duplicate").length,
       },
     });
   } catch (err: any) {

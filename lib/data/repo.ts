@@ -20,6 +20,10 @@ import {
   type DbOverlapAlert,
 } from "@/lib/supabase/types";
 import { getSla } from "@/lib/sla";
+import { CaseEvent, SEED_CASE_EVENTS } from "@/lib/timeline";
+import { InterBureauTask, SEED_INTER_BUREAU_TASKS } from "@/lib/tasks";
+import { ConflictAlert, SEED_CONFLICT_ALERTS, detectConflicts } from "@/lib/conflicts";
+import { RoutingFeedbackRecord } from "@/lib/classifier";
 
 export interface UpdatePatch {
   status?: Complaint["status"];
@@ -53,6 +57,18 @@ export interface Repo {
   adjudicateAlert(patch: AdjudicationPatch): Promise<void>;
   insertComplaint(complaint: Complaint): Promise<boolean>;
   setFlaggedState(complaintId: string, flagged: boolean): Promise<void>;
+
+  // Phase 2 Intelligence Methods
+  getEvents(complaintId: string): Promise<CaseEvent[]>;
+  addEvent(event: CaseEvent): Promise<void>;
+  getTasks(filter?: { bureau?: Bureau; complaintId?: string }): Promise<InterBureauTask[]>;
+  createTask(task: InterBureauTask): Promise<void>;
+  updateTaskStatus(taskId: string, status: InterBureauTask["status"], officer?: string): Promise<void>;
+  getConflicts(): Promise<ConflictAlert[]>;
+  resolveConflict(conflictId: string, resolution: { notes: string; resolved_by: string }): Promise<void>;
+  mergeComplaints(masterId: string, childIds: string[], leadBureau: Bureau, officer: string): Promise<boolean>;
+  unmergeComplaint(childId: string, officer: string): Promise<boolean>;
+  recordRoutingFeedback(feedback: RoutingFeedbackRecord): Promise<void>;
 }
 
 // ── In-Memory Repository (with localStorage persistence) ────────────────────
@@ -61,6 +77,10 @@ const LS_COMPLAINTS = "sam_complaints";
 const LS_AUDIT = "sam_audit";
 const LS_ALERTS = "sam_alerts";
 const LS_DISMISSED = "sam_dismissed";
+const LS_EVENTS = "sam_case_events";
+const LS_TASKS = "sam_inter_tasks";
+const LS_CONFLICTS = "sam_conflicts";
+const LS_FEEDBACK = "sam_routing_feedback";
 
 const ENGINE = "Samanvay Overlap Engine";
 const ENGINE_TS = "2026-10-24T05:30:00.000Z";
@@ -123,6 +143,10 @@ class MemoryRepo implements Repo {
   private audit: AuditEntry[] = [];
   private alerts: OverlapAlert[] = [];
   private dismissedPairs: Set<string> = new Set();
+  private events: CaseEvent[] = [];
+  private tasks: InterBureauTask[] = [];
+  private conflicts: ConflictAlert[] = [];
+  private feedbacks: RoutingFeedbackRecord[] = [];
   private initialized = false;
 
   private init() {
@@ -140,6 +164,10 @@ class MemoryRepo implements Repo {
         const sa = localStorage.getItem(LS_AUDIT);
         const sl = localStorage.getItem(LS_ALERTS);
         const sd = localStorage.getItem(LS_DISMISSED);
+        const se = localStorage.getItem(LS_EVENTS);
+        const st = localStorage.getItem(LS_TASKS);
+        const scf = localStorage.getItem(LS_CONFLICTS);
+        const sfb = localStorage.getItem(LS_FEEDBACK);
 
         const loaded = sc ? (JSON.parse(sc) as Complaint[]) : initialComplaints;
         this.complaints = loaded.map((c) => ({
@@ -152,15 +180,27 @@ class MemoryRepo implements Repo {
         this.audit = sa ? JSON.parse(sa) : initialAudit;
         this.alerts = sl ? JSON.parse(sl) : initialAlerts;
         this.dismissedPairs = sd ? new Set(JSON.parse(sd)) : new Set();
+        this.events = se ? JSON.parse(se) : [...SEED_CASE_EVENTS];
+        this.tasks = st ? JSON.parse(st) : [...SEED_INTER_BUREAU_TASKS];
+        this.conflicts = scf ? JSON.parse(scf) : [...SEED_CONFLICT_ALERTS];
+        this.feedbacks = sfb ? JSON.parse(sfb) : [];
       } catch {
         this.complaints = initialComplaints;
         this.audit = initialAudit;
         this.alerts = initialAlerts;
+        this.events = [...SEED_CASE_EVENTS];
+        this.tasks = [...SEED_INTER_BUREAU_TASKS];
+        this.conflicts = [...SEED_CONFLICT_ALERTS];
+        this.feedbacks = [];
       }
     } else {
       this.complaints = initialComplaints;
       this.audit = initialAudit;
       this.alerts = initialAlerts;
+      this.events = [...SEED_CASE_EVENTS];
+      this.tasks = [...SEED_INTER_BUREAU_TASKS];
+      this.conflicts = [...SEED_CONFLICT_ALERTS];
+      this.feedbacks = [];
     }
     this.initialized = true;
   }
@@ -172,6 +212,10 @@ class MemoryRepo implements Repo {
       localStorage.setItem(LS_AUDIT, JSON.stringify(this.audit));
       localStorage.setItem(LS_ALERTS, JSON.stringify(this.alerts));
       localStorage.setItem(LS_DISMISSED, JSON.stringify([...this.dismissedPairs]));
+      localStorage.setItem(LS_EVENTS, JSON.stringify(this.events));
+      localStorage.setItem(LS_TASKS, JSON.stringify(this.tasks));
+      localStorage.setItem(LS_CONFLICTS, JSON.stringify(this.conflicts));
+      localStorage.setItem(LS_FEEDBACK, JSON.stringify(this.feedbacks));
     } catch {
       // quota or private browsing
     }
@@ -192,12 +236,30 @@ class MemoryRepo implements Repo {
     const idx = this.complaints.findIndex((c) => c.id === id);
     if (idx === -1) return false;
     const target = this.complaints[idx];
+    const newStatus = patch.status ?? target.status;
+    const newOfficer = patch.assigned_officer ?? target.assigned_officer;
+    const newNextAction = patch.next_action !== undefined ? patch.next_action : target.next_action;
+
     this.complaints[idx] = {
       ...target,
-      status: patch.status ?? target.status,
-      assigned_officer: patch.assigned_officer ?? target.assigned_officer,
-      next_action: patch.next_action !== undefined ? patch.next_action : target.next_action,
+      status: newStatus,
+      assigned_officer: newOfficer,
+      next_action: newNextAction,
     };
+
+    // Auto-mirror updates to merged child cases
+    if (target.merged_complaint_ids && target.merged_complaint_ids.length > 0) {
+      for (let j = 0; j < this.complaints.length; j++) {
+        if (this.complaints[j].master_id === target.id) {
+          this.complaints[j] = {
+            ...this.complaints[j],
+            status: newStatus,
+            next_action: `Mirrored from master ${target.id}: ${newNextAction}`,
+          };
+        }
+      }
+    }
+
     this.persist();
     return true;
   }
@@ -298,12 +360,269 @@ class MemoryRepo implements Repo {
     }
   }
 
+  async getEvents(complaintId: string): Promise<CaseEvent[]> {
+    this.init();
+    return this.events
+      .filter((e) => e.complaint_id === complaintId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
+  async addEvent(event: CaseEvent): Promise<void> {
+    this.init();
+    this.events.unshift(event);
+    this.persist();
+  }
+
+  async getTasks(filter?: { bureau?: Bureau; complaintId?: string }): Promise<InterBureauTask[]> {
+    this.init();
+    let res = [...this.tasks];
+    if (filter?.bureau) {
+      res = res.filter((t) => t.to_bureau === filter.bureau || t.from_bureau === filter.bureau);
+    }
+    if (filter?.complaintId) {
+      res = res.filter((t) => t.complaint_id === filter.complaintId);
+    }
+    return res.sort((a, b) => a.deadline.localeCompare(b.deadline));
+  }
+
+  async createTask(task: InterBureauTask): Promise<void> {
+    this.init();
+    this.tasks.unshift(task);
+    this.events.unshift({
+      id: `evt-task-${task.id}`,
+      complaint_id: task.complaint_id,
+      bureau: task.from_bureau,
+      event_type: "task",
+      actor: task.created_by,
+      title: `Task Delegated to ${task.to_bureau}: ${task.title}`,
+      description: `Assigned to ${task.assigned_to}. Deadline: ${task.deadline}. Priority: ${task.priority.toUpperCase()}.`,
+      created_at: task.created_at,
+    });
+    this.persist();
+  }
+
+  async updateTaskStatus(taskId: string, status: InterBureauTask["status"], officer = "Officer"): Promise<void> {
+    this.init();
+    const idx = this.tasks.findIndex((t) => t.id === taskId);
+    if (idx !== -1) {
+      const task = this.tasks[idx];
+      const now = new Date().toISOString();
+      this.tasks[idx] = {
+        ...task,
+        status,
+        completed_at: status === "completed" ? now : undefined,
+        completed_by: status === "completed" ? officer : undefined,
+      };
+
+      this.events.unshift({
+        id: `evt-task-upd-${Date.now()}`,
+        complaint_id: task.complaint_id,
+        bureau: task.to_bureau,
+        event_type: "task",
+        actor: officer,
+        title: `Task Status Updated to ${status.toUpperCase()}`,
+        description: `Task "${task.title}" marked as ${status} by ${officer}.`,
+        created_at: now,
+      });
+
+      this.persist();
+    }
+  }
+
+  async getConflicts(): Promise<ConflictAlert[]> {
+    this.init();
+    const detected = detectConflicts(this.complaints, (id) => mockInstitutions.find((i) => i.id === id));
+    const map = new Map<string, ConflictAlert>();
+    for (const c of detected) map.set(c.id, c);
+    for (const c of this.conflicts) map.set(c.id, c);
+    return Array.from(map.values());
+  }
+
+  async resolveConflict(conflictId: string, resolution: { notes: string; resolved_by: string }): Promise<void> {
+    this.init();
+    const now = new Date().toISOString();
+    const idx = this.conflicts.findIndex((c) => c.id === conflictId);
+    let alert = idx !== -1 ? this.conflicts[idx] : null;
+
+    if (!alert) {
+      const detected = detectConflicts(this.complaints, (id) => mockInstitutions.find((i) => i.id === id));
+      alert = detected.find((c) => c.id === conflictId) || null;
+      if (alert) this.conflicts.push(alert);
+    }
+
+    if (alert) {
+      alert.status = "Resolved";
+      alert.resolved_by = resolution.resolved_by;
+      alert.resolved_at = now;
+      alert.resolution_notes = resolution.notes;
+
+      for (const cid of alert.complaint_ids) {
+        await this.addAudit({
+          complaint_id: cid,
+          action: "Conflict Resolved",
+          timestamp: now,
+          officer: resolution.resolved_by,
+          remarks: `Regulatory contradiction resolved. Joint Directive: "${resolution.notes}".`,
+        });
+
+        this.events.unshift({
+          id: `evt-conf-res-${Date.now()}-${cid}`,
+          complaint_id: cid,
+          bureau: "System",
+          event_type: "conflict",
+          actor: resolution.resolved_by,
+          title: "Regulatory Contradiction Formally Resolved",
+          description: resolution.notes,
+          created_at: now,
+        });
+      }
+
+      this.persist();
+    }
+  }
+
+  async mergeComplaints(masterId: string, childIds: string[], leadBureau: Bureau, officer: string): Promise<boolean> {
+    this.init();
+    const masterIdx = this.complaints.findIndex((c) => c.id === masterId);
+    if (masterIdx === -1) return false;
+
+    const master = this.complaints[masterIdx];
+    const now = new Date().toISOString();
+
+    const existingChildren = master.merged_complaint_ids || [];
+    const updatedChildren = Array.from(new Set([...existingChildren, ...childIds]));
+
+    this.complaints[masterIdx] = {
+      ...master,
+      lead_bureau: leadBureau,
+      merged_complaint_ids: updatedChildren,
+      next_action: `Lead Bureau (${leadBureau}) proceedings active for ${updatedChildren.length + 1} consolidated cases.`,
+    };
+
+    for (const cid of childIds) {
+      const cIdx = this.complaints.findIndex((c) => c.id === cid);
+      if (cIdx !== -1) {
+        this.complaints[cIdx] = {
+          ...this.complaints[cIdx],
+          master_id: masterId,
+          is_merged: true,
+          merged_into_id: masterId,
+          lead_bureau: leadBureau,
+          status: master.status,
+          next_action: `Consolidated under Master Case ${masterId} (Lead Bureau: ${leadBureau}). Updates mirrored automatically.`,
+        };
+
+        await this.addAudit({
+          complaint_id: cid,
+          action: "Case Merged as Child",
+          timestamp: now,
+          officer,
+          remarks: `Consolidated into Master Case ${masterId}. Lead Bureau: ${leadBureau}. Complainant record preserved.`,
+        });
+
+        this.events.unshift({
+          id: `evt-merge-${Date.now()}-${cid}`,
+          complaint_id: cid,
+          bureau: leadBureau,
+          event_type: "merge",
+          actor: officer,
+          title: `Merged into Master Case ${masterId}`,
+          description: `Consolidated under lead bureau ${leadBureau}. Status and proceedings will mirror ${masterId}.`,
+          created_at: now,
+        });
+      }
+    }
+
+    await this.addAudit({
+      complaint_id: masterId,
+      action: "Complaints Merged into Master",
+      timestamp: now,
+      officer,
+      remarks: `Merged ${childIds.length} duplicate complaints (${childIds.join(", ")}) into this master case. Designated Lead Bureau: ${leadBureau}.`,
+    });
+
+    this.events.unshift({
+      id: `evt-merge-master-${Date.now()}`,
+      complaint_id: masterId,
+      bureau: leadBureau,
+      event_type: "merge",
+      actor: officer,
+      title: `Consolidated ${childIds.length} Duplicate Cases`,
+      description: `Designated Lead Bureau: ${leadBureau}. Child cases: ${childIds.join(", ")}.`,
+      created_at: now,
+    });
+
+    this.persist();
+    return true;
+  }
+
+  async unmergeComplaint(childId: string, officer: string): Promise<boolean> {
+    this.init();
+    const childIdx = this.complaints.findIndex((c) => c.id === childId);
+    if (childIdx === -1) return false;
+
+    const child = this.complaints[childIdx];
+    const masterId = child.master_id;
+    const now = new Date().toISOString();
+
+    this.complaints[childIdx] = {
+      ...child,
+      master_id: undefined,
+      is_merged: false,
+      merged_into_id: undefined,
+      next_action: "Unmerged from master docket. Resumed independent bureau proceedings.",
+    };
+
+    if (masterId) {
+      const masterIdx = this.complaints.findIndex((c) => c.id === masterId);
+      if (masterIdx !== -1) {
+        const master = this.complaints[masterIdx];
+        this.complaints[masterIdx] = {
+          ...master,
+          merged_complaint_ids: (master.merged_complaint_ids || []).filter((id) => id !== childId),
+        };
+      }
+    }
+
+    await this.addAudit({
+      complaint_id: childId,
+      action: "Case Unmerged",
+      timestamp: now,
+      officer,
+      remarks: `Unmerged from master case ${masterId || "—"}. Restored to independent proceeding.`,
+    });
+
+    this.events.unshift({
+      id: `evt-unmerge-${Date.now()}-${childId}`,
+      complaint_id: childId,
+      bureau: child.bureau,
+      event_type: "merge",
+      actor: officer,
+      title: "Case Unmerged from Master",
+      description: `Detached from ${masterId}. Case restored to independent standing status.`,
+      created_at: now,
+    });
+
+    this.persist();
+    return true;
+  }
+
+  async recordRoutingFeedback(feedback: RoutingFeedbackRecord): Promise<void> {
+    this.init();
+    this.feedbacks.unshift(feedback);
+    this.persist();
+  }
+
   reset(): void {
     if (typeof window !== "undefined") {
       localStorage.removeItem(LS_COMPLAINTS);
       localStorage.removeItem(LS_AUDIT);
       localStorage.removeItem(LS_ALERTS);
       localStorage.removeItem(LS_DISMISSED);
+      localStorage.removeItem(LS_EVENTS);
+      localStorage.removeItem(LS_TASKS);
+      localStorage.removeItem(LS_CONFLICTS);
+      localStorage.removeItem(LS_FEEDBACK);
     }
     this.initialized = false;
     this.init();
@@ -613,6 +932,130 @@ class SupabaseRepo implements Repo {
       .from("complaints")
       .update({ is_overlap_flagged: flagged, updated_at: new Date().toISOString() })
       .eq("id", complaintId);
+  }
+
+  async getEvents(complaintId: string): Promise<CaseEvent[]> {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return memoryRepo.getEvents(complaintId);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("case_events")
+        .select("*")
+        .eq("complaint_id", complaintId)
+        .order("created_at", { ascending: false });
+      if (error || !data || data.length === 0) return memoryRepo.getEvents(complaintId);
+      return data as CaseEvent[];
+    } catch {
+      return memoryRepo.getEvents(complaintId);
+    }
+  }
+
+  async addEvent(event: CaseEvent): Promise<void> {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return memoryRepo.addEvent(event);
+    try {
+      const { error } = await (supabase as any).from("case_events").insert(event);
+      if (error) await memoryRepo.addEvent(event);
+    } catch {
+      await memoryRepo.addEvent(event);
+    }
+  }
+
+  async getTasks(filter?: { bureau?: Bureau; complaintId?: string }): Promise<InterBureauTask[]> {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return memoryRepo.getTasks(filter);
+    try {
+      let q = (supabase as any).from("inter_bureau_tasks").select("*");
+      if (filter?.bureau) q = q.or(`to_bureau.eq.${filter.bureau},from_bureau.eq.${filter.bureau}`);
+      if (filter?.complaintId) q = q.eq("complaint_id", filter.complaintId);
+      const { data, error } = await q.order("deadline", { ascending: true });
+      if (error || !data || data.length === 0) return memoryRepo.getTasks(filter);
+      return data as InterBureauTask[];
+    } catch {
+      return memoryRepo.getTasks(filter);
+    }
+  }
+
+  async createTask(task: InterBureauTask): Promise<void> {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return memoryRepo.createTask(task);
+    try {
+      const { error } = await (supabase as any).from("inter_bureau_tasks").insert(task);
+      if (error) await memoryRepo.createTask(task);
+    } catch {
+      await memoryRepo.createTask(task);
+    }
+  }
+
+  async updateTaskStatus(taskId: string, status: InterBureauTask["status"], officer = "Officer"): Promise<void> {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return memoryRepo.updateTaskStatus(taskId, status, officer);
+    try {
+      const now = new Date().toISOString();
+      const { error } = await (supabase as any)
+        .from("inter_bureau_tasks")
+        .update({
+          status,
+          completed_at: status === "completed" ? now : null,
+          completed_by: status === "completed" ? officer : null,
+        })
+        .eq("id", taskId);
+      if (error) await memoryRepo.updateTaskStatus(taskId, status, officer);
+    } catch {
+      await memoryRepo.updateTaskStatus(taskId, status, officer);
+    }
+  }
+
+  async getConflicts(): Promise<ConflictAlert[]> {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return memoryRepo.getConflicts();
+    try {
+      const { data, error } = await (supabase as any).from("conflict_alerts").select("*");
+      if (error || !data || data.length === 0) return memoryRepo.getConflicts();
+      return data as ConflictAlert[];
+    } catch {
+      return memoryRepo.getConflicts();
+    }
+  }
+
+  async resolveConflict(conflictId: string, resolution: { notes: string; resolved_by: string }): Promise<void> {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return memoryRepo.resolveConflict(conflictId, resolution);
+    try {
+      const { error } = await (supabase as any)
+        .from("conflict_alerts")
+        .update({
+          status: "Resolved",
+          resolved_by: resolution.resolved_by,
+          resolved_at: new Date().toISOString(),
+          resolution_notes: resolution.notes,
+        })
+        .eq("id", conflictId);
+      if (error) await memoryRepo.resolveConflict(conflictId, resolution);
+    } catch {
+      await memoryRepo.resolveConflict(conflictId, resolution);
+    }
+  }
+
+  async mergeComplaints(masterId: string, childIds: string[], leadBureau: Bureau, officer: string): Promise<boolean> {
+    await memoryRepo.mergeComplaints(masterId, childIds, leadBureau, officer);
+    return true;
+  }
+
+  async unmergeComplaint(childId: string, officer: string): Promise<boolean> {
+    await memoryRepo.unmergeComplaint(childId, officer);
+    return true;
+  }
+
+  async recordRoutingFeedback(feedback: RoutingFeedbackRecord): Promise<void> {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return memoryRepo.recordRoutingFeedback(feedback);
+    try {
+      const { error } = await (supabase as any).from("routing_feedback").insert(feedback);
+      if (error) await memoryRepo.recordRoutingFeedback(feedback);
+    } catch {
+      await memoryRepo.recordRoutingFeedback(feedback);
+    }
   }
 }
 
