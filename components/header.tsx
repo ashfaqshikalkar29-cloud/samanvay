@@ -2,15 +2,23 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useTranslation } from "@/lib/i18n/context";
+import { SupportedLocale } from "@/lib/i18n/types";
+import { GuidedTour } from "@/components/demo/guided-tour";
+import { LiveOverlapDemo } from "@/components/demo/live-overlap-demo";
 import {
+  AlertOctagon,
+  Award,
   Bell,
   BookOpen,
   Bot,
   Building2,
+  Compass,
   FileBarChart2,
   FilePenLine,
   FilePlus,
+  Globe,
   Landmark,
   LayoutDashboard,
   ListTodo,
@@ -19,6 +27,9 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  ShieldCheck,
+  KeyRound,
+  Sparkles,
   TrendingUp,
   User,
   UserCog,
@@ -32,10 +43,24 @@ import { isTaskOverdue } from "@/lib/tasks";
 import { fmtDate } from "@/components/ui-bits";
 import { TasksDrawer } from "@/components/tasks-drawer";
 import { RulebookDrawer } from "@/components/rulebook-drawer";
+import { AuditChainViewer } from "@/components/security/audit-chain-viewer";
+import { MfaModal } from "@/components/security/mfa-modal";
+import { AntiRaggingDialog } from "@/components/anti-ragging/anti-ragging-dialog";
+import { KnowledgeBaseSearchDialog } from "@/components/knowledge-base/kb-search-dialog";
+import { ImpactPanel } from "@/components/impact-panel";
+import { useSimpleMode } from "@/lib/simple-mode";
+
+import { defaultNotificationService } from "@/lib/notifications/service";
+import { NotificationRecord } from "@/lib/notifications/types";
+import { Mail, MessageCircle, Phone, Send, Zap } from "lucide-react";
 
 function BellPopover() {
   const { visible, sendReminder } = useApp();
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"sla" | "nudges">("sla");
+  const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
+  const [runningNudges, setRunningNudges] = useState(false);
+  const [nudgeMessage, setNudgeMessage] = useState<string | null>(null);
 
   const urgent = visible
     .filter((c) => c.status !== "Disposed")
@@ -44,12 +69,50 @@ function BellPopover() {
     .sort((a, b) => a.sla.daysLeft - b.sla.daysLeft)
     .slice(0, 5);
 
+  const loadNotifications = () => {
+    setNotifications(defaultNotificationService.getNotifications().slice(0, 6));
+  };
+
+  useEffect(() => {
+    if (open) {
+      loadNotifications();
+    }
+  }, [open]);
+
+  const handleRunNudges = async () => {
+    setRunningNudges(true);
+    setNudgeMessage(null);
+    try {
+      const res = await fetch("/api/notifications/nudges/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference_date: DEMO_TODAY }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNudgeMessage(`Dispatched ${data.nudges_dispatched} proactive nudges (${data.summary.institute_80_urgent} urgent 80% SLA reminders to institutes)`);
+        loadNotifications();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRunningNudges(false);
+    }
+  };
+
+  const channelIcon = (ch: string) => {
+    if (ch === "sms") return <Phone className="h-3.5 w-3.5 text-blue-600" />;
+    if (ch === "email") return <Mail className="h-3.5 w-3.5 text-purple-600" />;
+    if (ch === "whatsapp") return <MessageCircle className="h-3.5 w-3.5 text-emerald-600" />;
+    return <Bell className="h-3.5 w-3.5 text-slate-600" />;
+  };
+
   return (
     <div className="relative">
       <Button
         variant="ghost"
         size="icon"
-        aria-label="SLA reminders"
+        aria-label="SLA reminders and notifications"
         className="relative text-blue-200 hover:bg-white/10 hover:text-white"
         onClick={() => setOpen((o) => !o)}
       >
@@ -61,49 +124,124 @@ function BellPopover() {
         )}
       </Button>
       {open && (
-        <div className="absolute right-0 top-10 z-50 w-80 rounded-lg border border-slate-200 bg-white shadow-xl">
-          <div className="border-b border-slate-100 px-4 py-2">
-            <p className="text-sm font-semibold text-slate-800">SLA Alerts</p>
-            <p className="text-xs text-slate-500">Demo today: {fmtDate(DEMO_TODAY)}</p>
+        <div className="absolute right-0 top-10 z-50 w-96 rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
+          {/* Header & Tabs */}
+          <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-bold text-slate-900">Activity &amp; Notifications</p>
+              <span className="text-[10px] text-slate-500 font-mono">Demo: {fmtDate(DEMO_TODAY)}</span>
+            </div>
+            <div className="mt-2 flex gap-1 bg-slate-200/70 p-0.5 rounded-lg text-xs">
+              <button
+                onClick={() => setActiveTab("sla")}
+                className={`flex-1 py-1 rounded-md font-medium text-center transition-colors ${
+                  activeTab === "sla" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                SLA Alerts ({urgent.length})
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab("nudges");
+                  loadNotifications();
+                }}
+                className={`flex-1 py-1 rounded-md font-medium text-center transition-colors ${
+                  activeTab === "nudges" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Proactive Nudges ({notifications.length})
+              </button>
+            </div>
           </div>
-          {urgent.length === 0 ? (
-            <p className="px-4 py-4 text-sm text-slate-500">All cases on track. 🎉</p>
+
+          {activeTab === "sla" ? (
+            <div>
+              {urgent.length === 0 ? (
+                <p className="px-4 py-6 text-center text-sm text-slate-500">All cases on track. 🎉</p>
+              ) : (
+                <ul className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                  {urgent.map(({ c, sla }) => (
+                    <li key={c.id} className="flex items-center justify-between gap-2 px-4 py-3 hover:bg-slate-50">
+                      <div className="min-w-0">
+                        <Link
+                          href={`/complaint/${c.id}`}
+                          className="text-sm font-semibold text-blue-800 hover:underline"
+                          onClick={() => setOpen(false)}
+                        >
+                          {c.id}
+                        </Link>
+                        <p className="text-xs text-slate-500 truncate">{c.category}</p>
+                        <p className={`text-xs font-medium ${sla.state === "Overdue" ? "text-red-600" : "text-amber-600"}`}>
+                          {sla.state === "Overdue" ? `${-sla.daysLeft}d overdue` : `Due in ${sla.daysLeft}d`}
+                          {sla.escalationLevel > 0 && ` · Escalate to ${sla.escalationAuthority}`}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 text-xs h-7 border-slate-200"
+                        onClick={() => {
+                          sendReminder(c.id);
+                          setOpen(false);
+                        }}
+                      >
+                        Remind
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           ) : (
-            <ul className="divide-y divide-slate-100">
-              {urgent.map(({ c, sla }) => (
-                <li key={c.id} className="flex items-center justify-between gap-2 px-4 py-3">
-                  <div className="min-w-0">
-                    <Link
-                      href={`/complaint/${c.id}`}
-                      className="text-sm font-semibold text-blue-800 hover:underline"
-                      onClick={() => setOpen(false)}
-                    >
-                      {c.id}
-                    </Link>
-                    <p className="text-xs text-slate-500 truncate">{c.category}</p>
-                    <p className={`text-xs font-medium ${sla.state === "Overdue" ? "text-red-600" : "text-amber-600"}`}>
-                      {sla.state === "Overdue" ? `${-sla.daysLeft}d overdue` : `Due in ${sla.daysLeft}d`}
-                      {sla.escalationLevel > 0 && ` · Escalate to ${sla.escalationAuthority}`}
-                    </p>
+            <div className="p-3 space-y-3">
+              <div className="flex items-center justify-between bg-blue-50/70 p-2.5 rounded-lg border border-blue-100">
+                <div className="text-[11px] text-blue-900">
+                  <p className="font-semibold">Simulated Gateway Adapters</p>
+                  <p className="text-blue-700/80">CDAC SMS · NIC Mail · WhatsApp Cloud</p>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={runningNudges}
+                  onClick={handleRunNudges}
+                  className="h-7 text-xs bg-blue-900 hover:bg-blue-800 text-white gap-1"
+                >
+                  <RefreshCw className={`h-3 w-3 ${runningNudges ? "animate-spin" : ""}`} />
+                  {runningNudges ? "Evaluating..." : "Run Nudges"}
+                </Button>
+              </div>
+
+              {nudgeMessage && (
+                <p className="text-[11px] text-emerald-700 bg-emerald-50 p-2 rounded border border-emerald-200 font-medium">
+                  ✓ {nudgeMessage}
+                </p>
+              )}
+
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {notifications.map((n) => (
+                  <div key={n.id} className="p-2.5 rounded-lg border border-slate-200 bg-white text-xs space-y-1 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-900 flex items-center gap-1.5 truncate max-w-[200px]">
+                        {channelIcon(n.channel)}
+                        {n.title}
+                      </span>
+                      <span className="rounded uppercase bg-slate-100 px-1.5 py-0.2 text-[9px] font-bold text-slate-600">
+                        {n.channel}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 line-clamp-2">{n.message}</p>
+                    <div className="pt-1 flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-100">
+                      <span>To: {n.recipient_name}</span>
+                      <span className="text-emerald-600 font-semibold">Delivered</span>
+                    </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0 text-xs h-7 border-slate-200"
-                    onClick={() => {
-                      sendReminder(c.id);
-                      setOpen(false);
-                    }}
-                  >
-                    Remind
-                  </Button>
-                </li>
-              ))}
-            </ul>
+                ))}
+              </div>
+            </div>
           )}
-          <div className="border-t border-slate-100 px-4 py-2 text-center">
-            <Link href="/" className="text-xs text-blue-700 hover:underline" onClick={() => setOpen(false)}>
-              View dashboard →
+
+          <div className="border-t border-slate-100 px-4 py-2 text-center bg-slate-50">
+            <Link href="/" className="text-xs text-blue-700 font-medium hover:underline" onClick={() => setOpen(false)}>
+              View All Dockets →
             </Link>
           </div>
         </div>
@@ -114,11 +252,20 @@ function BellPopover() {
 
 export function Header() {
   const { mode, role, setRole, actor, resetDemo, signOut, user, profile, tasks, suspiciousCases } = useApp();
+  const { locale, setLocale, languages, t } = useTranslation();
   const pathname = usePathname();
   const [resetMenuOpen, setResetMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [tasksDrawerOpen, setTasksDrawerOpen] = useState(false);
   const [rulebookDrawerOpen, setRulebookDrawerOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [overlapDemoOpen, setOverlapDemoOpen] = useState(false);
+  const [auditChainOpen, setAuditChainOpen] = useState(false);
+  const [mfaModalOpen, setMfaModalOpen] = useState(false);
+  const [antiRaggingOpen, setAntiRaggingOpen] = useState(false);
+  const [kbOpen, setKbOpen] = useState(false);
+  const [impactOpen, setImpactOpen] = useState(false);
+  const { isSimpleMode, toggleSimpleMode } = useSimpleMode();
 
   // If on /login page, keep header minimal
   const isLoginPage = pathname === "/login";
@@ -153,7 +300,12 @@ export function Header() {
         ]
       : []),
     { href: "/institutions", label: "Institutions", icon: Building2 },
+    { href: "/scorecards", label: "Risk Scorecards", icon: Award },
+    { href: "/public/transparency", label: "Transparency", icon: Globe },
     { href: "/reports", label: "Reports", icon: FileBarChart2 },
+    { href: "/assisted-filing", label: "Assisted Filing", icon: FilePenLine },
+    { href: "/coverage", label: "Coverage", icon: ShieldCheck },
+    ...(role === "Admin" ? [{ href: "/admin/users", label: "Admin", icon: UserCog }] : []),
     { href: "/new", label: "File Grievance", icon: FilePlus },
     ...(isStaff ? [{ href: "/walk-in", label: "Walk-In Entry", icon: FilePenLine }] : []),
     { href: "/track", label: "Track Status", icon: Search },
@@ -252,6 +404,121 @@ export function Header() {
                 <div className="text-[10px] uppercase tracking-wider">Signed in as</div>
                 <div className="font-medium text-white">{actor}</div>
               </div>
+
+              {/* Anti-Ragging 24x7 Fast-Track Emergency Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Anti-Ragging 24x7"
+                className="relative text-red-300 hover:bg-red-500/20 hover:text-red-100 flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold border border-red-500/40 rounded-lg animate-pulse"
+                onClick={() => setAntiRaggingOpen(true)}
+              >
+                <AlertOctagon className="h-3.5 w-3.5 text-red-400" />
+                <span className="hidden xl:inline">Anti-Ragging 24x7</span>
+              </Button>
+
+              {/* Regulatory Knowledge Base Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Knowledge Base"
+                className="relative text-blue-200 hover:bg-white/10 hover:text-white flex items-center gap-1.5 px-2 py-1 text-xs"
+                onClick={() => setKbOpen(true)}
+              >
+                <BookOpen className="h-4 w-4 text-blue-300" />
+                <span className="hidden md:inline">APH Rules</span>
+              </Button>
+
+              {/* Live Overlap Demo Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Live Overlap Demo"
+                className="relative text-yellow-300 hover:bg-white/10 hover:text-yellow-100 flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold"
+                onClick={() => setOverlapDemoOpen(true)}
+              >
+                <Sparkles className="h-4 w-4 text-yellow-400 animate-pulse" />
+                <span className="hidden sm:inline">Live Overlap Demo</span>
+              </Button>
+
+              {/* Executive ROI & Impact Metrics Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Executive Impact Metrics"
+                className="relative text-yellow-300 hover:bg-white/10 hover:text-yellow-100 flex items-center gap-1.5 px-2 py-1 text-xs font-semibold"
+                onClick={() => setImpactOpen(true)}
+              >
+                <TrendingUp className="h-4 w-4 text-yellow-400" />
+                <span className="hidden xl:inline">ROI Impact</span>
+              </Button>
+
+              {/* Citizen Plain-Language Simple Mode Toggle */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Toggle Simple Mode"
+                className={`relative flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                  isSimpleMode
+                    ? "bg-amber-400 text-amber-950 hover:bg-amber-300"
+                    : "text-amber-300 hover:bg-white/10 hover:text-white"
+                }`}
+                onClick={toggleSimpleMode}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span className="hidden md:inline">{isSimpleMode ? "Simple: ON" : "Simple Mode"}</span>
+              </Button>
+
+              {/* Guided Product Tour Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Guided Product Tour"
+                className="relative text-blue-200 hover:bg-white/10 hover:text-white flex items-center gap-1.5 px-2 py-1 text-xs"
+                onClick={() => setTourOpen(true)}
+              >
+                <Compass className="h-4 w-4 text-blue-300" />
+                <span className="hidden md:inline">Tour</span>
+              </Button>
+
+              {/* Cryptographic Hash-Chained Audit Trail Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Audit Chain Ledger"
+                className="relative text-emerald-300 hover:bg-white/10 hover:text-emerald-100 flex items-center gap-1.5 px-2 py-1 text-xs font-medium"
+                onClick={() => setAuditChainOpen(true)}
+              >
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                <span className="hidden lg:inline">Audit Chain</span>
+              </Button>
+
+              {/* TOTP 2FA Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="TOTP 2FA"
+                className="relative text-indigo-300 hover:bg-white/10 hover:text-indigo-100 flex items-center gap-1.5 px-2 py-1 text-xs font-medium"
+                onClick={() => setMfaModalOpen(true)}
+              >
+                <KeyRound className="h-4 w-4 text-indigo-400" />
+                <span className="hidden lg:inline">2FA</span>
+              </Button>
+
+              {/* Multi-Language Selector Dropdown */}
+              <Select value={locale} onValueChange={(v) => setLocale(v as SupportedLocale)}>
+                <SelectTrigger className="w-[105px] border-white/20 bg-white/10 text-white text-xs h-8">
+                  <Globe className="h-3.5 w-3.5 mr-1 text-blue-200 shrink-0" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {languages.map((l) => (
+                    <SelectItem key={l.code} value={l.code} className="text-xs">
+                      {l.nativeName} ({l.name})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
               {/* In Memory mode: Show role switcher dropdown */}
               {mode === "memory" && (
@@ -369,6 +636,53 @@ export function Header() {
 
       {/* AICTE Rulebook Q&A Knowledge Assistant Drawer */}
       <RulebookDrawer isOpen={rulebookDrawerOpen} onClose={() => setRulebookDrawerOpen(false)} />
+
+      {/* Interactive Product Walkthrough Tour */}
+      <GuidedTour
+        isOpen={tourOpen}
+        onClose={() => setTourOpen(false)}
+        onLaunchOverlapDemo={() => setOverlapDemoOpen(true)}
+      />
+
+      {/* Interactive Live Overlap & Merge Demo */}
+      <LiveOverlapDemo
+        isOpen={overlapDemoOpen}
+        onClose={() => setOverlapDemoOpen(false)}
+      />
+
+      {/* Cryptographic Hash-Chained Audit Trail Viewer */}
+      {auditChainOpen && (
+        <AuditChainViewer
+          userRole={role}
+          complaintId="ALL"
+          onClose={() => setAuditChainOpen(false)}
+        />
+      )}
+
+      {/* TOTP Multi-Factor Authentication Modal */}
+      {mfaModalOpen && (
+        <MfaModal
+          userRole={role}
+          userId={actor}
+          onClose={() => setMfaModalOpen(false)}
+        />
+      )}
+
+      {/* Emergency Anti-Ragging Fast-Track Dialog */}
+      {antiRaggingOpen && (
+        <AntiRaggingDialog onClose={() => setAntiRaggingOpen(false)} />
+      )}
+
+      {/* AICTE Regulatory Knowledge Base Search Dialog */}
+      {kbOpen && (
+        <KnowledgeBaseSearchDialog onClose={() => setKbOpen(false)} />
+      )}
+
+      {/* Executive ROI & Impact Summary Panel */}
+      <ImpactPanel
+        isOpen={impactOpen}
+        onClose={() => setImpactOpen(false)}
+      />
     </header>
   );
 }

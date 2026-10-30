@@ -1,0 +1,57 @@
+name: Samanvay Enterprise CI & Security Audit
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    name: Build, TypeCheck & Security Suites
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Dependency Vulnerability Scanning (OWASP A06)
+        run: npm audit --audit-level=high
+
+      - name: TypeScript Static Type Checking
+        run: npx tsc --noEmit
+
+      - name: Execute Phase 1 Tests (Workflows & SLA Engine)
+        run: npx tsx scripts/test-phase1.ts
+
+      - name: Execute Phase 2 Tests (Citizen Portals & Nudges)
+        run: npx tsx scripts/test-phase2-portals.ts
+
+      - name: Execute Phase 3 Tests (Indic i18n & Live Overlap)
+        run: npx tsx scripts/test-phase3-tour-i18n.ts
+
+      - name: Execute Phase 4 Tests (RBAC, TOTP, Audit Chain & DPDP)
+        run: npx tsx scripts/test-phase4-security.ts
+
+      - name: Execute Phase 5 Tests (External Adapters, Show-Cause & REST API)
+        run: npx tsx scripts/test-phase5-integrations.ts
+
+      - name: Execute Phase 6 Tests (Admin, Health, PWA & Accessibility)
+        run: npx tsx scripts/test-phase6-admin-platform.ts
+
+      - name: Execute Disaster Recovery Backup & Restore Drill
+        run: npx tsx scripts/backup-restore.ts
+
+      - name: Next.js Production Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_DATA_MODE: memory

@@ -1,33 +1,46 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, EyeOff, ShieldCheck, Tag } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck, Tag, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { defaultPIIService } from "@/lib/ai/pii";
 import { Role } from "@/lib/mock";
+import { DpdpUnmaskModal } from "@/components/security/dpdp-unmask-modal";
 
 export function PIITextViewer({
   rawText,
   role,
   isAssignedOfficer = false,
+  complaintId = "COMP-2026-0001",
 }: {
   rawText: string;
   role: Role;
   isAssignedOfficer?: boolean;
+  complaintId?: string;
 }) {
   const isPrivileged = role === "Admin" || role === "Chairperson" || isAssignedOfficer;
   const [showOriginal, setShowOriginal] = useState(false);
+  const [unmaskModalOpen, setUnmaskModalOpen] = useState(false);
 
   // Compute redacted and extracted entities
   const redaction = defaultPIIService.redact(rawText, role, isPrivileged && showOriginal);
   const entities = defaultPIIService.extractEntities(rawText);
+
+  const handleToggle = () => {
+    if (showOriginal) {
+      setShowOriginal(false);
+    } else {
+      // Require DPDP statutory justification modal
+      setUnmaskModalOpen(true);
+    }
+  };
 
   return (
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
         <div className="flex items-center gap-1.5 text-xs text-slate-500">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-          <span>Statutory Data Privacy & PII Protection</span>
+          <span>Statutory DPDP 2023 PII Protection</span>
           {redaction.redaction_count > 0 && !showOriginal && (
             <span className="rounded bg-slate-100 px-1.5 py-0.2 text-[10px] font-bold text-slate-700">
               {redaction.redaction_count} PII Fields Masked
@@ -40,21 +53,21 @@ export function PIITextViewer({
             size="sm"
             variant="outline"
             className="h-6 text-[11px] gap-1 border-slate-200 text-slate-700 hover:bg-slate-100"
-            onClick={() => setShowOriginal(!showOriginal)}
+            onClick={handleToggle}
           >
             {showOriginal ? (
               <>
-                <EyeOff className="h-3 w-3 text-red-600" /> Mask PII (Public / Export Mode)
+                <EyeOff className="h-3 w-3 text-red-600" /> Mask PII (Public Mode)
               </>
             ) : (
               <>
-                <Eye className="h-3 w-3 text-blue-600" /> Reveal PII (Statutory Officer Mode)
+                <Lock className="h-3 w-3 text-blue-600" /> Statutory Reveal PII
               </>
             )}
           </Button>
         ) : (
           <span className="text-[10px] text-slate-400 italic">
-            PII masked per AICTE Privacy Norms
+            PII masked per DPDP Act 2023 & AICTE Regulations
           </span>
         )}
       </div>
@@ -86,6 +99,19 @@ export function PIITextViewer({
             </span>
           ))}
         </div>
+      )}
+
+      {/* Statutory DPDP Unmasking Modal */}
+      {unmaskModalOpen && (
+        <DpdpUnmaskModal
+          complaintId={complaintId}
+          userRole={role}
+          onSuccess={() => {
+            setShowOriginal(true);
+            setUnmaskModalOpen(false);
+          }}
+          onClose={() => setUnmaskModalOpen(false)}
+        />
       )}
     </div>
   );

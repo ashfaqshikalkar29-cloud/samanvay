@@ -12,7 +12,9 @@ export type EventType =
   | "hearing"
   | "merge"
   | "task"
-  | "conflict";
+  | "conflict"
+  | "transfer"
+  | "decision";
 
 export interface CaseEvent {
   id: string;
@@ -64,6 +66,16 @@ export const EVENT_TYPE_CONFIG: Record<
     label: "Contradiction Alert",
     color: "#dc2626",
     badgeClass: "border-red-200 bg-red-50 text-red-700",
+  },
+  transfer: {
+    label: "Officer / Bureau Transfer",
+    color: "#4f46e5",
+    badgeClass: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  },
+  decision: {
+    label: "Formal Disposal Order",
+    color: "#059669",
+    badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
 };
 

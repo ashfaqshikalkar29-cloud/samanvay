@@ -128,3 +128,14 @@
     @apply font-sans;
   }
 }
+
+body.sam-simple-mode {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: #020617;
+}
+
+body.sam-simple-mode button,
+body.sam-simple-mode a {
+  font-weight: 600;
+}

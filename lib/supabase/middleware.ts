@@ -40,6 +40,12 @@ export async function updateSession(request: NextRequest) {
   const isPublicRoute =
     request.nextUrl.pathname.startsWith("/new") ||
     request.nextUrl.pathname.startsWith("/track") ||
+    request.nextUrl.pathname.startsWith("/public") ||
+    request.nextUrl.pathname.startsWith("/scorecards") ||
+    request.nextUrl.pathname.startsWith("/assisted-filing") ||
+    request.nextUrl.pathname.startsWith("/coverage") ||
+    request.nextUrl.pathname.startsWith("/health") ||
+    request.nextUrl.pathname.startsWith("/offline") ||
     request.nextUrl.pathname.startsWith("/api/");
 
   if (!user && !isLoginPage && !isPublicRoute) {

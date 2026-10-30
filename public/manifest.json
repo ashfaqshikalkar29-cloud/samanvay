@@ -1,0 +1,27 @@
+{
+  "name": "AICTE Samanvay Grievance Coordination Portal",
+  "short_name": "Samanvay",
+  "description": "Centralised AICTE Grievance Portal with Cross-Bureau Coordination & Offline Support",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020b18",
+  "theme_color": "#0c2340",
+  "orientation": "portrait-primary",
+  "categories": ["government", "education", "utilities"],
+  "icons": [
+    {
+      "src": "/globe.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/globe.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
