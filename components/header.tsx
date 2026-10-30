@@ -144,7 +144,8 @@ function BellPopover() {
         variant="ghost"
         size="icon"
         aria-label={`Notifications (${urgent.length} urgent SLA alerts)`}
-        className="relative h-9 w-9 text-blue-200 hover:bg-white/10 hover:text-white rounded-lg focus-visible:ring-2 focus-visible:ring-white/40"
+        title={`Notifications (${urgent.length} urgent SLA alerts)`}
+        className="relative h-8 w-8 text-blue-200 hover:bg-white/10 hover:text-white rounded-lg focus-visible:ring-2 focus-visible:ring-white/40 flex items-center justify-center p-0"
         onClick={() => setOpen((o) => !o)}
       >
         <Bell className="h-4 w-4" />
@@ -378,21 +379,21 @@ export function Header() {
 
       {/* Main Bar: 64px tall, single row, strictly non-wrapping */}
       <div className="bg-blue-950 text-white h-16" ref={navContainerRef}>
-        <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-3 sm:px-4 lg:px-4 2xl:px-8">
           {/* ================================================================ */}
           {/* LEFT: Logo & Branding                                            */}
           {/* ================================================================ */}
           <Link
             href="/"
             aria-label="Samanvay Home Dashboard"
-            className="flex items-center gap-2.5 shrink-0 hover:opacity-95 transition-opacity"
+            className="flex items-center gap-1.5 shrink-0 hover:opacity-95 transition-opacity"
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/20 text-blue-200">
-              <Landmark className="h-5 w-5" />
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/20 text-blue-200">
+              <Landmark className="h-4 w-4" />
             </span>
             <div className="leading-tight">
-              <span className="block text-lg font-bold tracking-wide text-white">Samanvay</span>
-              <span className="hidden xl:block text-[9px] uppercase tracking-widest text-blue-300">
+              <span className="block text-base 2xl:text-lg font-bold tracking-wide text-white">Samanvay</span>
+              <span className="hidden 2xl:block text-[9px] uppercase tracking-widest text-blue-300">
                 AICTE · Integrated Grievance Portal
               </span>
             </div>
@@ -403,16 +404,16 @@ export function Header() {
           {/* Direct Links + 3 Structured Dropdowns: Intake, Intel, Governance  */}
           {/* ================================================================ */}
           {!isLoginPage && (
-            <nav className="hidden lg:flex items-center gap-1 xl:gap-1.5 h-full" aria-label="Main Navigation">
+            <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1 h-full" aria-label="Main Navigation">
               {/* Direct: Dashboard */}
               <Link
                 href="/"
                 aria-current={pathname === "/" ? "page" : undefined}
-                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs xl:text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1 rounded-md px-1.5 xl:px-2 py-1.5 text-xs 2xl:text-sm font-medium transition-colors ${
                   pathname === "/" ? "bg-white/20 text-white font-bold" : "text-blue-200 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                <LayoutDashboard className="h-4 w-4 shrink-0" />
+                <LayoutDashboard className="h-3.5 w-3.5 2xl:h-4 2xl:w-4 shrink-0" />
                 <span>Dashboard</span>
               </Link>
 
@@ -420,13 +421,13 @@ export function Header() {
               <Link
                 href="/institutions"
                 aria-current={pathname === "/institutions" ? "page" : undefined}
-                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs xl:text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1 rounded-md px-1.5 xl:px-2 py-1.5 text-xs 2xl:text-sm font-medium transition-colors ${
                   pathname === "/institutions"
                     ? "bg-white/20 text-white font-bold"
                     : "text-blue-200 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                <Building2 className="h-4 w-4 shrink-0" />
+                <Building2 className="h-3.5 w-3.5 2xl:h-4 2xl:w-4 shrink-0" />
                 <span>Institutions</span>
               </Link>
 
@@ -434,13 +435,13 @@ export function Header() {
               <Link
                 href="/reports"
                 aria-current={pathname === "/reports" ? "page" : undefined}
-                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs xl:text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1 rounded-md px-1.5 xl:px-2 py-1.5 text-xs 2xl:text-sm font-medium transition-colors ${
                   pathname === "/reports"
                     ? "bg-white/20 text-white font-bold"
                     : "text-blue-200 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                <FileBarChart2 className="h-4 w-4 shrink-0" />
+                <FileBarChart2 className="h-3.5 w-3.5 2xl:h-4 2xl:w-4 shrink-0" />
                 <span>Reports</span>
               </Link>
 
@@ -453,16 +454,16 @@ export function Header() {
                   aria-haspopup="true"
                   aria-expanded={activeDropdown === "intake"}
                   onClick={() => setActiveDropdown(activeDropdown === "intake" ? null : "intake")}
-                  className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs xl:text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1 rounded-md px-1.5 xl:px-2 py-1.5 text-xs 2xl:text-sm font-medium transition-colors ${
                     isIntakeActive || activeDropdown === "intake"
                       ? "bg-white/20 text-white font-bold"
                       : "text-blue-200 hover:bg-white/10 hover:text-white"
                   }`}
                 >
-                  <FilePlus className="h-4 w-4 shrink-0 text-emerald-400" />
+                  <FilePlus className="h-3.5 w-3.5 2xl:h-4 2xl:w-4 shrink-0 text-emerald-400" />
                   <span>Intake</span>
                   <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform duration-150 ${
+                    className={`h-3 w-3 xl:h-3.5 xl:w-3.5 transition-transform duration-150 ${
                       activeDropdown === "intake" ? "rotate-180" : ""
                     }`}
                   />
@@ -551,13 +552,13 @@ export function Header() {
                   aria-haspopup="true"
                   aria-expanded={activeDropdown === "intelligence"}
                   onClick={() => setActiveDropdown(activeDropdown === "intelligence" ? null : "intelligence")}
-                  className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs xl:text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1 rounded-md px-1.5 xl:px-2 py-1.5 text-xs 2xl:text-sm font-medium transition-colors ${
                     isIntelligenceActive || activeDropdown === "intelligence"
                       ? "bg-white/20 text-white font-bold"
                       : "text-blue-200 hover:bg-white/10 hover:text-white"
                   }`}
                 >
-                  <Sparkles className="h-4 w-4 shrink-0 text-yellow-400" />
+                  <Sparkles className="h-3.5 w-3.5 2xl:h-4 2xl:w-4 shrink-0 text-yellow-400" />
                   <span>Intelligence</span>
                   {pendingSuspicious > 0 && (
                     <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-sm">
@@ -565,7 +566,7 @@ export function Header() {
                     </span>
                   )}
                   <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform duration-150 ${
+                    className={`h-3 w-3 xl:h-3.5 xl:w-3.5 transition-transform duration-150 ${
                       activeDropdown === "intelligence" ? "rotate-180" : ""
                     }`}
                   />
@@ -740,16 +741,16 @@ export function Header() {
                   aria-haspopup="true"
                   aria-expanded={activeDropdown === "governance"}
                   onClick={() => setActiveDropdown(activeDropdown === "governance" ? null : "governance")}
-                  className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs xl:text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1 rounded-md px-1.5 xl:px-2 py-1.5 text-xs 2xl:text-sm font-medium transition-colors ${
                     isGovernanceActive || activeDropdown === "governance"
                       ? "bg-white/20 text-white font-bold"
                       : "text-blue-200 hover:bg-white/10 hover:text-white"
                   }`}
                 >
-                  <ShieldCheck className="h-4 w-4 shrink-0 text-blue-400" />
+                  <ShieldCheck className="h-3.5 w-3.5 2xl:h-4 2xl:w-4 shrink-0 text-blue-400" />
                   <span>Governance</span>
                   <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform duration-150 ${
+                    className={`h-3 w-3 xl:h-3.5 xl:w-3.5 transition-transform duration-150 ${
                       activeDropdown === "governance" ? "rotate-180" : ""
                     }`}
                   />
@@ -901,11 +902,11 @@ export function Header() {
           {/* File Grievance Primary CTA, Tasks, Bell, Simple, Tour, Lang, User */}
           {/* ================================================================ */}
           {!isLoginPage ? (
-            <div className="flex items-center gap-1.5 xl:gap-2 shrink-0">
+            <div className="flex items-center gap-1 xl:gap-1.5 shrink-0">
               {/* Primary "+ File Grievance" Button on Desktop */}
               <Link
                 href="/new"
-                className="hidden xl:inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors"
+                className="hidden xl:inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-2 py-1.5 rounded-lg shadow-sm transition-colors whitespace-nowrap"
               >
                 <FilePlus className="h-3.5 w-3.5" />
                 <span>+ File Grievance</span>
@@ -917,7 +918,8 @@ export function Header() {
                   variant="ghost"
                   size="icon"
                   aria-label={`Inter-bureau Tasks (${pendingTasks.length} pending)`}
-                  className="relative h-9 w-9 text-blue-200 hover:bg-white/10 hover:text-white rounded-lg"
+                  title={`Inter-bureau Tasks (${pendingTasks.length} pending)`}
+                  className="relative h-8 w-8 text-blue-200 hover:bg-white/10 hover:text-white rounded-lg flex items-center justify-center p-0"
                   onClick={() => setTasksDrawerOpen(true)}
                 >
                   <ListTodo className="h-4 w-4" />
@@ -941,16 +943,15 @@ export function Header() {
                 variant="ghost"
                 size="sm"
                 aria-label="Toggle Plain-Language Simple Mode"
-                title={isSimpleMode ? "Turn off Simple Citizen Mode" : "Switch to Citizen Plain-Language Mode"}
-                className={`hidden lg:inline-flex items-center gap-1 h-8 px-2 text-xs font-semibold rounded-lg transition-colors ${
+                title={isSimpleMode ? "Plain-Language Simple Mode: ON" : "Switch to Citizen Plain-Language Mode"}
+                className={`hidden lg:inline-flex items-center justify-center h-8 w-8 p-0 rounded-lg transition-colors ${
                   isSimpleMode
                     ? "bg-amber-400 text-amber-950 hover:bg-amber-300 font-bold"
                     : "text-amber-300 hover:bg-white/10 hover:text-white"
                 }`}
                 onClick={toggleSimpleMode}
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                <span>{isSimpleMode ? "Simple: ON" : "Simple"}</span>
+                <Sparkles className="h-4 w-4" />
               </Button>
 
               {/* Guided Product Tour Button */}
@@ -959,7 +960,7 @@ export function Header() {
                 size="icon"
                 aria-label="Guided Product Tour"
                 title="Start Interactive Guided Tour"
-                className="hidden lg:inline-flex h-9 w-9 text-blue-200 hover:bg-white/10 hover:text-white rounded-lg"
+                className="hidden lg:inline-flex h-8 w-8 p-0 items-center justify-center text-blue-200 hover:bg-white/10 hover:text-white rounded-lg"
                 onClick={() => setTourOpen(true)}
               >
                 <HelpCircle className="h-4 w-4 text-blue-300" />
@@ -971,10 +972,10 @@ export function Header() {
                   <SelectTrigger
                     aria-label="Select Portal Language"
                     title="Change Portal Language"
-                    className="w-[95px] xl:w-[110px] border-white/20 bg-white/10 text-white text-xs h-8 rounded-lg"
+                    className="w-[60px] border-white/20 bg-white/10 text-white text-xs h-8 px-1.5 rounded-lg flex items-center justify-between"
                   >
-                    <Globe className="h-3.5 w-3.5 mr-1 text-blue-200 shrink-0" />
-                    <SelectValue />
+                    <Globe className="h-3.5 w-3.5 text-blue-200 shrink-0" />
+                    <span className="text-[11px] font-bold uppercase">{locale}</span>
                   </SelectTrigger>
                   <SelectContent align="end" className="bg-white text-slate-800 text-xs">
                     {languages.map((l) => (
@@ -995,13 +996,10 @@ export function Header() {
                   aria-expanded={userMenuOpen}
                   title={`Signed in as ${profile?.full_name || actor} (${role})`}
                   onClick={() => setUserMenuOpen((o) => !o)}
-                  className="flex items-center gap-1.5 h-8 border border-white/20 bg-white/10 px-2 xl:px-2.5 text-xs text-white hover:bg-white/20 rounded-lg"
+                  className="flex items-center gap-1.5 h-8 border border-white/20 bg-white/10 px-2 text-xs text-white hover:bg-white/20 rounded-lg whitespace-nowrap"
                 >
                   <User className="h-3.5 w-3.5 text-blue-200 shrink-0" />
-                  <span className="hidden xl:inline text-[11px] max-w-[100px] truncate text-slate-200">
-                    {profile?.full_name || actor} ·
-                  </span>
-                  <span className="font-bold text-amber-300 max-w-[90px] truncate">{role}</span>
+                  <span className="font-bold text-amber-300 text-xs max-w-[85px] truncate">{role}</span>
                   <ChevronDown className="h-3 w-3 opacity-70" />
                 </Button>
 
@@ -1080,7 +1078,7 @@ export function Header() {
                 variant="ghost"
                 size="icon"
                 aria-label="Open Navigation Menu"
-                className="lg:hidden h-9 w-9 text-white hover:bg-white/10 rounded-lg ml-1"
+                className="lg:hidden h-8 w-8 text-white hover:bg-white/10 rounded-lg ml-0.5 p-0 flex items-center justify-center"
                 onClick={() => setMobileSheetOpen(true)}
               >
                 <Menu className="h-5 w-5" />
